@@ -1,1 +1,1 @@
-# SM_estimation
+# SMI TOOLBOX (Standard Model Imaging)
