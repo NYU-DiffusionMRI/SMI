@@ -1,4 +1,4 @@
-![#f03c15](https://via.placeholder.com/15/f03c15/000000?text=+) `Still not ready to go online`
+![#f03c15](https://via.placeholder.com/15/f03c15/000000?text=+) `Still not ready to go online (THIS IS A DRAFT)`
 
 
 # Standard Model Imaging (SMI) toolbox
