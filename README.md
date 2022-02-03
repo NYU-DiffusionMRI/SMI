@@ -34,7 +34,7 @@ For technical details please look at the following publication:
 - Els Fieremans
 - Dmitry Novikov
 
-Do not hesitate to reach out to Santiago.Coelho@nyulangone.org for feedback, suggestions, questions, or comments[^note].
+Do not hesitate to reach out to Santiago.Coelho@nyulangone.org (or [@santicoelho](https://twitter.com/santicoelho) in Twitter) for feedback, suggestions, questions, or comments[^note].
 
 [^note]:
     Please cite these works if you use the SMI toolbox in your publication:
