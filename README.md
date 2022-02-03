@@ -18,7 +18,7 @@ Thus, each measurement is fully specified by: a b-value, a b-tensor shape, a uni
 - If no TE is supplied, the code assumes that the TE is the same across all measurements.
 
 
-### Comments
+## Comments
 - We recommend using the default options but the code is sufficiently flexible to provide users with some flexibility.
 
 - The current SMI implementation is written in Matlab, future work may translate it to other languages.
@@ -26,7 +26,7 @@ Thus, each measurement is fully specified by: a b-value, a b-tensor shape, a uni
 - For technical details please look at the following publication:
   - Arxiv SM reproducibility link
 
-# Example usage[^note] (THIS IS NOT READY
+## Example usage[^note] (THIS IS NOT READY
 ```
 % Load data and protocol
 nii=load_untouch_nii(fullfile(pathFiles,'dwi_preproc.nii.gz'));
@@ -56,7 +56,7 @@ TE=[];
 % Perform PR training on Rotational Invariants and fitting SM kernel
 KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs,bshape,TE,lb_training,ub_training,Lmax_train,Ntraining,Nlevels,[0 0.4]);
 ```
-## Advanced options
+## Advanced usage options
 The code provides some additional flexibility:
 - Batch processing (many datasets with identical protocols)
 - Variable number of compartments
@@ -64,7 +64,7 @@ The code provides some additional flexibility:
 - Output spherical harmonic decomposition of the ODF
 
 
-## The Standard Model of diffusion in white matter (basics)
+## Theory: The Standard Model of diffusion in white matter
 Multiple approaches to model the physics of water diffusion in white matter rely on similar assumptions. This led to the unifying framework dubbed Standard Model (SM) of diffusion in WM as formulated in ([Novikov et al., 2019](https://doi.org/10.1002/mrm.27101)).
 
 <img width="1904" alt="SM_kernel_voxel_diagram_v2" src="https://user-images.githubusercontent.com/54751227/152257942-d8097c8b-8574-4b2e-8641-a614f9522edc.png">
