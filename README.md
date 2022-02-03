@@ -26,7 +26,7 @@ Thus, each measurement is fully specified by: a b-value, a b-tensor shape, a uni
 - For technical details please look at the following publication:
   - Arxiv SM reproducibility link
 
-# Example usage[^note]
+# Example usage[^note] (THIS IS NOT READY
 ```
 % Load data and protocol
 nii=load_untouch_nii(fullfile(pathFiles,'dwi_preproc.nii.gz'));
