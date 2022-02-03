@@ -31,6 +31,38 @@ For technical details please look at the following publication:
 
 - Arxiv SM reproducibility link
 
+# Example usage
+```
+% Load data and protocol
+nii=load_untouch_nii(fullfile(pathFiles,'dwi_preproc.nii.gz'));
+dwi=abs(double(nii.img));
+bval=load(fullfile(pathFiles,'dwi_preproc.bval'));
+TE=load(fullfile(pathFiles,'dwi_preproc.TE'));
+bshape=load(fullfile(pathFiles,'dwi_preproc.bshape'));
+dirs=load(fullfile(pathFiles,'dwi_preproc.bvec'));
+% Load mask
+nii_mask=load_untouch_nii(fullfile(pathFiles,'mask.nii.gz'));
+mask=logical(nii_mask.img);
+% Load noise map and p-map
+sigma_nii=load_untouch_nii(fullfile(pathFiles,'sigma_dki.nii'));
+sigma=abs(sigma_nii.img);
+
+% Keep only fixed TE data (TE=92ms)
+keep_fixed_TE=TE==92;
+dwi=dwi(:,:,:,keep_fixed_TE);
+bval=bval(keep_fixed_TE);
+dirs=dirs(:,keep_fixed_TE);
+bshape=bshape(keep_fixed_TE);
+TE=[];
+
+% Perform Spherical Harmonics fit
+[Slm,Sl,~,table_4D_sorted] = STARDOM_debug.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,bval,dirs,bshape,TE,Lmax);
+
+% Perform PR training on Rotational Invariants and fitting SM kernel
+KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs,bshape,TE,lb_training,ub_training,Lmax_train,Ntraining,Nlevels,[0 0.4]);
+```
+
+
 # Authors
 - Santiago Coelho
 - Jelle Veraart
