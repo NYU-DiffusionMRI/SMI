@@ -65,7 +65,8 @@ KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs
 The code provides some additional flexibility:
 - Batch processing (multiple datasets with identical protocols)
 - Variable number of compartments ('IAS', 'EAS', 'FW', 'DOT')
-- Rician bias correction
+- Modify the parameter distributions used for the training data (for the machine learning estimator)
+- Rician bias correction (to de-bias the DWI before the spherical harmonics fit)
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for MRtrix3)
 
 
