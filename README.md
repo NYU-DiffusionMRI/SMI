@@ -5,7 +5,7 @@
 This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model of diffusion in white matter
 
 ## SMI input data
-This implementation of the SM supports as input a 4D array of diffusion data (3D spatial arrangement of voxels and diffusion measurements along 4th dimention). Measurements can have varying:
+This implementation of the SM supports as input a 4D array of diffusion-weighted data (3D spatial arrangement of voxels and diffusion measurements along 4th dimention). Measurements can have varying:
 - b-values (b)
 - b-tensor shapes (β)
 - echo times (TE)
@@ -18,8 +18,12 @@ Thus, each measurement is fully specified by: a b-value, a b-tensor shape, a uni
 - If no TE is supplied, the code assumes that the TE is the same across all measurements.
 
 
-## Comments
-- We recommend using the default options but the code is sufficiently flexible to provide users with some flexibility.
+## Recommended usage
+We recommend using the default options but the code is sufficiently flexible to provide users with some flexibility.
+Recommended inputs:
+- DWI + protocol information + mask (binary 3D array) + noise map.
+ - If a mask is not provided the fit will be performed in all voxels in the 3D array.
+ - If a noise map is not provided, noise will be estimated using the repetitions of the non-diffusion-weighted images.
 
 - The current SMI implementation is written in Matlab, future work may translate it to other languages.
 
