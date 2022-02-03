@@ -2,13 +2,13 @@
 
 
 # Standard Model Imaging (SMI) toolbox
-This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model of diffusion in white matter
+This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model of diffusion in white matter.
 
 ## SMI input data
 This implementation of the SM supports as input a 4D array of diffusion-weighted data (3D spatial arrangement of voxels and diffusion measurements along 4th dimention). Measurements can have varying:
-- b-values (b)
-- b-tensor shapes (β)
-- echo times (TE)
+- b-values (b).
+- b-tensor shapes (β).
+- echo times (TE).
  
 Thus, each measurement is fully specified by: a b-value, a b-tensor shape, a unit direction (axis of symmetry of **B**), and TE. See the equation below to understand how these parameters make a b-tensor **B**
 
@@ -29,7 +29,7 @@ Recommended inputs:
 - The current SMI implementation is written in Matlab, future work may translate it to other languages.
 
 - For technical details please look at the following publication:
-  - Arxiv SM reproducibility link
+  - Arxiv SM reproducibility link.
 
 ## Example usage[^note] (THIS IS NOT READY
 ```
@@ -63,11 +63,11 @@ KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs
 ```
 ## Advanced usage options
 The code provides some additional flexibility:
-- Batch processing (multiple datasets with identical protocols)
-- Variable number of compartments ('IAS', 'EAS', 'FW', 'DOT')
-- Modify the parameter distributions used for the training data (for the machine learning estimator)
-- Rician bias correction (to de-bias the DWI before the spherical harmonics fit)
-- Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for MRtrix3)
+- Batch processing (multiple datasets with identical protocols).
+- Variable number of compartments ('IAS', 'EAS', 'FW', 'DOT').
+- Modify the parameter distributions used for the training data (for the machine learning estimator).
+- Rician bias correction (to de-bias the DWI before the spherical harmonics fit).
+- Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for MRtrix3).
 
 
 ## Theory: The Standard Model of diffusion in white matter
@@ -89,7 +89,7 @@ Do not hesitate to reach out to Santiago.Coelho@nyulangone.org (or [@santicoelho
 
 [^note]:
     Please cite these works if you use the SMI toolbox in your publication:
-    - ARXIV COELHO et al 2022
+    - ARXIV COELHO et al 2022.
     - Dmitry S. Novikov, Jelle Veraart, Ileana O. Jelescu, Els Fieremans, Rotationally-invariant mapping of scalar and orientational metrics of neuronal microstructure with diffusion MRI, NeuroImage, Volume 174, 2018, Pages 518-538.
     - Marco Reisert, Elias Kellner, Bibek Dhital, Jürgen Hennig, Valerij G. Kiselev, Disentangling micro from mesostructure by diffusion MRI: A Bayesian approach, NeuroImage, Volume 147, 2017, Pages 964-975.
 
