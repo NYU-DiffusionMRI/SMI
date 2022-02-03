@@ -19,11 +19,12 @@ Thus, each measurement is fully specified by: a b-value, a b-tensor shape, a uni
 
 
 ## Recommended usage
-We recommend using the default options but the code is sufficiently flexible to provide users with some flexibility.
+We recommend using the default options but the code provides users with some flexibility.
 Recommended inputs:
-- DWI + protocol information + mask (binary 3D array) + noise map.
- - If a mask is not provided the fit will be performed in all voxels in the 3D array.
- - If a noise map is not provided, noise will be estimated using the repetitions of the non-diffusion-weighted images.
+- Diffusion data (4D array) + protocol information + mask (binary 3D array) + noise map (3D array).
+  - If a mask is not provided the fit will be performed in all voxels present in the first 3 dimensions of the 4D array.
+  - If a noise map is not provided, it will be estimated using the repetitions of the non-diffusion-weighted images.
+  - We recommend preprocessing your raw data with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER) before doing SM estimation (DESIGNER outputs a robust noise estimation).
 
 - The current SMI implementation is written in Matlab, future work may translate it to other languages.
 
