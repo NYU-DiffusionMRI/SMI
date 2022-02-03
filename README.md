@@ -56,6 +56,13 @@ TE=[];
 % Perform PR training on Rotational Invariants and fitting SM kernel
 KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs,bshape,TE,lb_training,ub_training,Lmax_train,Ntraining,Nlevels,[0 0.4]);
 ```
+## Advanced options
+The code provides some additional flexibility:
+- Batch processing (many datasets with identical protocols)
+- Variable number of compartments
+- Rician bias correction
+- Output spherical harmonic decomposition of the ODF
+
 
 ## The Standard Model of diffusion in white matter (basics)
 Multiple approaches to model the physics of water diffusion in white matter rely on similar assumptions. This led to the unifying framework dubbed Standard Model (SM) of diffusion in WM as formulated in ([Novikov et al., 2019](https://doi.org/10.1002/mrm.27101)).
