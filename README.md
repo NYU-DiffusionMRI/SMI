@@ -62,10 +62,10 @@ KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs
 ```
 ## Advanced usage options
 The code provides some additional flexibility:
-- Batch processing (many datasets with identical protocols)
-- Variable number of compartments
+- Batch processing (multiple datasets with identical protocols)
+- Variable number of compartments ('IAS', 'EAS', 'FW', 'DOT')
 - Rician bias correction
-- Output spherical harmonic decomposition of the ODF
+- Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for MRtrix3)
 
 
 ## Theory: The Standard Model of diffusion in white matter
