@@ -88,10 +88,10 @@ The code provides some additional flexibility:
 
 
 ## SMI Authors
-- Santiago Coelho
-- Jelle Veraart
-- Els Fieremans
-- Dmitry Novikov
+- [Santiago Coelho](https://santiagocoelho.github.io/)
+- [Jelle Veraart](https://med.nyu.edu/faculty/jelle-veraart)
+- [Els Fieremans](https://www.diffusion-mri.com/who-we-are/els-fieremans/)
+- [Dmitry Novikov](https://www.diffusion-mri.com/who-we-are/dmitry-novikov/)
 
 Do not hesitate to reach out to Santiago.Coelho@nyulangone.org (or [@santicoelho](https://twitter.com/santicoelho) in Twitter) for feedback, suggestions, questions, or comments[^note].
 
