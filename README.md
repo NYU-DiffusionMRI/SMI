@@ -67,20 +67,12 @@ Recommended inputs:
 We provide an example dataset [here](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing) that was preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). This contains multiple b-values, tensor shapes, and echo times. See the example file 'example.m' with the SMI fit of a subset of the data with only 1 TE, and with the full dataset. 
 
 ```
-% Load data and protocol
-nii=load_untouch_nii(fullfile(pathFiles,'dwi_preproc.nii.gz'));
-dwi=abs(double(nii.img));
-bval=load(fullfile(pathFiles,'dwi_preproc.bval'));
-TE=load(fullfile(pathFiles,'dwi_preproc.TE'));
-bshape=load(fullfile(pathFiles,'dwi_preproc.bshape'));
-dirs=load(fullfile(pathFiles,'dwi_preproc.bvec'));
-% Load mask
+% Load dwi, protocol, and mask
 
-% Perform Spherical Harmonics fit
-[Slm,Sl,~,table_4D_sorted] = STARDOM_debug.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,bval,dirs,bshape,TE,Lmax);
-
-% Perform PR training on Rotational Invariants and fitting SM kernel
-KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs,bshape,TE,lb_training,ub_training,Lmax_train,Ntraining,Nlevels,[0 0.4]);
+% Perform SM fit
+options.b = 1;
+options.beta = 1;
+Kernel = SMI.fitKernel(dwi,options);
 ```
 ## Some advanced usage options
 The code provides some additional flexibility:
