@@ -14,7 +14,10 @@ This implementation of the SM supports as input a 4D array of diffusion-weighted
 
 Each measurement is fully specified by: a b-value, a b-tensor shape, a unit direction (axis of symmetry of **B**), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
 
-<img width="700" align="center" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
+
+<p align="center">
+  <img width="650" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
+</p>
 
 
 
