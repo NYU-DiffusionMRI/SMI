@@ -2,29 +2,26 @@
 
 
 # Standard Model Imaging (SMI) toolbox
-This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model of diffusion in white matter. Check [our recent paper](https://arxiv.org/) for details on this implementation and on the Standard Model in general.
+This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter. Check [our recent paper](https://arxiv.org/) for details on this implementation and on the Standard Model in general.
 
 <br>
 
 ## SMI input data
 This implementation of the SM supports as input a 4D array of diffusion-weighted data (3D spatial arrangement of voxels + diffusion measurements along 4th dimention). Measurements can have:
-- Multiple b-values (b). This input can be a column or row vector with the same length as the 4th dimension of the input data. We recommend microstructural units [milliseconds / (squared micrometers)]), each with its own direction ([3 x N] array).
+- Multiple b-values (b). This input can be a column or row vector with the same length as the 4th dimension of the input data. We recommend microstructural units [milliseconds / (squared micrometers)]. Note that b=1000 [seconds / (squared millimeter)] = 1 [milliseconds / (squared micrometers)].
+- Multiple b-vectors or directions (each measurement must have its own direction, [3 x N] array).
 - Multiple **B**-tensor shapes (β). This input can be a column or row vector with the same length as the 4th dimension of the input data. Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape.
 - Multiple echo times (TE, in milliseconds). This input can be a column or row vector with the same length as the 4th dimension of the input data.
 
-Each measurement is fully specified by: a b-value, a b-tensor shape, a unit direction (axis of symmetry of **B**), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
-
-
+Each measurement is thus fully specified by: a b-value (b), a unit direction (**u**) (axis of symmetry of **B**), a b-tensor shape (β), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
 <p align="center">
   <img width="550" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
 </p>
 
-
-
 <br>
-
-- If no β is supplied (empty array) the code assumes β=1 (linear tensor encoding measurements).
-- If no TE is supplied (empty array), the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted.
+  - b-values and directions must be supplied for each measurement.
+  - If no β is supplied (this input can be empty array) the code assumes β=1 (linear tensor encoding, LTE, measurements).
+  - If no TE is supplied (this input can be empty array), the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted.
 
 <br>
 
