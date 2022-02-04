@@ -16,7 +16,7 @@ Each measurement is fully specified by: a b-value, a b-tensor shape, a unit dire
 
 
 <p align="center">
-  <img width="650" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
+  <img width="550" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
 </p>
 
 
