@@ -47,8 +47,7 @@ Recommended inputs:
 
 - The current SMI implementation is written in Matlab, future work may translate it to other languages.
 
-- For technical details please look at our recent publication:
-  - [Reproducibility of the Standard Model of diffusion in white matter on clinical MRI systems, (2022), ArXiv](https://arxiv.org/).
+- For technical details please look at our recent publication: [Reproducibility of the Standard Model of diffusion in white matter on clinical MRI systems, (2022), ArXiv](https://arxiv.org/).
 
 <br>
 
