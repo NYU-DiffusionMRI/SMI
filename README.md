@@ -51,7 +51,7 @@ Recommended inputs:
 <br>
 
 ## Example usage[^note]
-We provide an example dataset [here](https://cai2r.net/about/team/) that was preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). This contains multiple b-values, tensor shapes, and echo times. See the example file 'asdasds.m' with the SMI fit of a subset of the data with only 1 TE, and with the full dataset. 
+We provide an example dataset [here](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing) that was preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). This contains multiple b-values, tensor shapes, and echo times. See the example file 'example.m' with the SMI fit of a subset of the data with only 1 TE, and with the full dataset. 
 
 ```
 % Load data and protocol
