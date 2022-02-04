@@ -2,7 +2,7 @@
 
 
 # Standard Model Imaging (SMI) toolbox
-This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/) for details on this implementation and on the Standard Model in general.
+This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox and a script that analyzes an example dataset.
 
 <br>
 
