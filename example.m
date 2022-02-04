@@ -1,12 +1,16 @@
 %% Example code for Standard Model (SM) parameter estimation
 %
-% % EXAMPLE 1 - Fitting SM on fixed TE data
-% % EXAMPLE 2 - Fitting SM on variable TE data
+% EXAMPLE 1 - Fitting SM on fixed TE data
+% EXAMPLE 2 - Fitting SM on variable TE data
+%
+%
+% Load test dataset from 'https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing'
+%
 
 
 %% EXAMPLE 1 - Fitting SM on fixed TE data
 clc,clear,close all
-pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/exampleData';
+pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/exampleDataSMI';
 % =========================================================================
 % Load data and protocol
 nii=load_untouch_nii(fullfile(pathFiles,'dwi_preproc.nii.gz'));
@@ -44,7 +48,7 @@ S0_lowest=S0nn(:,:,:,1);
 IMGUI(S0nn./S0_lowest,[0 0.5]), set(gcf,'Position',[40.5714 26.3333 294.1429 59.8000])
 IMGUI(S2nn./S0_lowest,[0 0.1]), set(gcf,'Position',[40.5714 26.3333 294.1429 59.8000])
 IMGUI(S4nn./S0_lowest,[0 0.02]), set(gcf,'Position',[40.5714 26.3333 294.1429 59.8000])
-IMGUI(cat(4,20*S2nn(:,:,:,6)./S0_lowest,50*S4nn(:,:,:,6)./S0_lowest),[0 1]), set(gcf,'Position',[40.5714 26.3333 294.1429 59.8000])
+% IMGUI(cat(4,20*S2nn(:,:,:,6)./S0_lowest,50*S4nn(:,:,:,6)./S0_lowest),[0 1]), set(gcf,'Position',[40.5714 26.3333 294.1429 59.8000])
 % =========================================================================
 % Perform PR training on Rotational Invariants and fitting SM kernel
 S0nn=squeeze(Sl(:,:,:,1,:));
@@ -65,7 +69,7 @@ IMGUI(KERNEL_resc,[0 1]), set(gcf, 'Position', [30.5714 7.4667 258.2857 71.8000]
 
 %% EXAMPLE 2 - Fitting SM on variable TE data
 clc,clear,close all
-pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SM_estimation/exampleData';
+pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/exampleDataSMI';
 % =========================================================================
 % Load data and protocol
 nii=load_untouch_nii(fullfile(pathFiles,'dwi_preproc.nii.gz'));
