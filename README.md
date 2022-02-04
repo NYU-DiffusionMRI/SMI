@@ -2,21 +2,36 @@
 
 
 # Standard Model Imaging (SMI) toolbox
-This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model of diffusion in white matter.
+This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model of diffusion in white matter. Check [our recent paper](https://arxiv.org/) for details on this implementation and on the Standard Model in general.
+
+<br>
 
 ## SMI input data
-This implementation of the SM supports as input a 4D array of diffusion-weighted data (3D spatial arrangement of voxels and diffusion measurements along 4th dimention). Measurements can have varying:
-- b-values (b).
-- b-tensor shapes (β).
-- echo times (TE).
- 
-Thus, each measurement is fully specified by: a b-value, a b-tensor shape, a unit direction (axis of symmetry of **B**), and TE. See the equation below to understand how these parameters make a b-tensor **B**
+This implementation of the SM supports as input a 4D array of diffusion-weighted data (3D spatial arrangement of voxels + diffusion measurements along 4th dimention). Measurements can have:
+- Multiple b-values (b, typical .bval file, we recommend microstructural units [milliseconds / (squared micrometers)]), each with its own direction (typical .bvec file).
+- Multiple **B**-tensor shapes (β). Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape.
+- Multiple echo times (TE, in milliseconds).
+
+Each measurement is fully specified by: a b-value, a b-tensor shape, a unit direction (axis of symmetry of **B**), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
 
 <img width="1206" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
 
-- If no β information is supplied the code assumes β=1 (linear tensor encoding measurements).
-- If no TE is supplied, the code assumes that the TE is the same across all measurements.
+<br>
 
+- If no β information is supplied the code assumes β=1 (linear tensor encoding measurements).
+- If no TE is supplied, the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted.
+
+<br>
+
+
+## SMI outputs
+Standard Model parameters (diffusion) + compartmental T2 values (only if multiple TE data was provided). See figure below for some examples:
+<img width="1690" alt="SM_maps_github" src="https://user-images.githubusercontent.com/54751227/152456997-5f24f886-03f9-4eb2-a5f8-1dd767134eae.png">
+
+
+
+
+<br>
 
 ## Recommended usage
 We recommend using the default options but the code provides users with some flexibility.
@@ -31,7 +46,9 @@ Recommended inputs:
 - For technical details please look at the following publication:
   - Arxiv SM reproducibility link.
 
-## Example usage[^note] (THIS IS NOT READY
+<br>
+
+## Example usage[^note] (THIS IS NOT READY)
 ```
 % Load data and protocol
 nii=load_untouch_nii(fullfile(pathFiles,'dwi_preproc.nii.gz'));
@@ -69,8 +86,9 @@ The code provides some additional flexibility:
 - Rician bias correction (to de-bias the DWI before the spherical harmonics fit).
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for MRtrix3).
 
+<br>
 
-## Theory: The Standard Model of diffusion in white matter
+## Some basic theory: The Standard Model of diffusion in white matter
 Multiple approaches to model the physics of water diffusion in white matter rely on similar assumptions. This led to the unifying framework dubbed Standard Model (SM) of diffusion in WM as formulated in ([Novikov et al., 2019](https://doi.org/10.1002/mrm.27101)).
 
 <img width="1665" alt="kernel_wEqConvolution" src="https://user-images.githubusercontent.com/54751227/152442326-32f53e80-42c2-4f79-a1f6-eef7b1196844.png">
@@ -78,6 +96,8 @@ Multiple approaches to model the physics of water diffusion in white matter rely
 Briefly, axons (and possibly glial processes) are represented by impermeable zero-radius cylinders (the so-called “sticks”) arranged in locally coherent fiber fascicles. The diffusion in the extra-axonal space of each fascicle is assumed to be Gaussian and described by an axially symmetric diffusion tensor. The third, optional tissue compartment is the cerebro-spinal fluid (CSF). Such multicomponent fascicles (also called kernel) are distributed in a voxel according to an arbitrary fiber orientation distribution function (ODF). All fascicles in a voxel are assumed to have the same compartment fractions and diffusivities, and differ from each other only by orientation.
 
 The SM encompasses a number of WM models made of anisotropic Gaussian compartments with axons represented by sticks ([Kroenke et al., 2004]( https://doi.org/10.1002/mrm.20260); [Jespersen et al., 2007](https://doi.org/10.1016/j.neuroimage.2006.10.037), [2010](https://doi.org/10.1016/j.neuroimage.2009.08.053); [Fieremans et al., 2011](https://doi.org/10.1016/j.neuroimage.2011.06.006); [Zhang et al., 2012](https://doi.org/10.1016/j.neuroimage.2012.03.072); [Sotiropoulos et al., 2012](https://doi.org/10.1016/j.neuroimage.2012.01.056); [Jensen et al., 2016](https://doi.org/10.1016/j.neuroimage.2015.09.049); [Jelescu et al., 2016a](https://doi.org/10.1002/nbm.3450); [Kaden et al., 2016](https://doi.org/10.1016/j.neuroimage.2016.06.002); [Reisert et al., 2017](https://doi.org/10.1016/j.neuroimage.2016.09.058); [Novikov et al., 2018](https://doi.org/10.1016/j.neuroimage.2018.03.006); [Veraart et al., 2018](https://doi.org/10.1016/j.neuroimage.2017.09.030), to mention a few). From the SM point of view, earlier models impose constraints either on compartment parameters or the functional form of the fiber ODF; such constraints improve robustness but may introduce biases into the estimation of remaining parameters.
+
+<br>
 
 # SMI Authors
 - Santiago Coelho
