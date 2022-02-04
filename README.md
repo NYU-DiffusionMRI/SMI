@@ -68,11 +68,12 @@ KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs
 ```
 ## Some advanced usage options
 The code provides some additional flexibility:
+
 - Batch processing. Parameter estimation on multiple datasets with identical protocols, training is done only once and applied to all.
 - Variable number of compartments ('IAS', 'EAS', 'FW', 'DOT'), any combination of these is allowed.
 - User defined parameter distributions for the training data (for the machine learning estimator that does RotInvs -> kernel).
 - Rician bias correction (to de-bias the DWI before the spherical harmonics fit).
-- Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
+- **(NOT READY YET)** Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
 
 <br>
 
