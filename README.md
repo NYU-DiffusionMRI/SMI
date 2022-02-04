@@ -8,17 +8,16 @@ This MATLAB toolbox contains all necessary functions for parameter estimation of
 
 ## SMI input data
 This implementation of the SM supports as input a 4D array of diffusion-weighted data (3D spatial arrangement of voxels + diffusion measurements along 4th dimention). Measurements can have:
-- Multiple b-values (b). This input can be a column or row vector with the same length as the 4th dimension of the input data. We recommend microstructural units [milliseconds / (squared micrometers)]. Note that b=1000 [seconds / (squared millimeter)] = 1 [milliseconds / (squared micrometers)].
+- Multiple b-values (b). This input can be a column or row vector with the same length as the 4th dimension of the input data. We recommend microstructural units [milliseconds / (squared micrometers)]. Note that b=1000 [seconds / (squared millimeters)] = 1 [milliseconds / (squared micrometers)].
 - Multiple b-vectors or directions (each measurement must have its own direction, [3 x N] array).
 - Multiple **B**-tensor shapes (β). This input can be a column or row vector with the same length as the 4th dimension of the input data. Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape.
-- Multiple echo times (TE, in milliseconds). This input can be a column or row vector with the same length as the 4th dimension of the input data.
+- Multiple echo times (TE, assumed to be in [milliseconds]). This input can be a column or row vector with the same length as the 4th dimension of the input data.
 
 Each measurement is thus fully specified by: a b-value (b), a unit direction (**u**) (axis of symmetry of **B**), a b-tensor shape (β), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
 <p align="center">
   <img width="550" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
 </p>
 
-<br>
   - b-values and directions must be supplied for each measurement.
   - If no β is supplied (this input can be empty array) the code assumes β=1 (linear tensor encoding, LTE, measurements).
   - If no TE is supplied (this input can be empty array), the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted.
@@ -29,7 +28,10 @@ Each measurement is thus fully specified by: a b-value (b), a unit direction (**
 ## SMI outputs
 Standard Model parameters (diffusion) + compartmental T2 values (only if multiple TE data was provided). See figure below for some examples:
 <img width="1690" alt="SM_maps_github" src="https://user-images.githubusercontent.com/54751227/152456997-5f24f886-03f9-4eb2-a5f8-1dd767134eae.png">
-Note that compartmental T2 maps will only be outputed if variable TE data was used.
+- Fractions (f, fw) and anisotropy (p2) are adimensional.
+- Diffusivities are returned in microstructural units [squared micrometers / milliseconds].
+- Compartmental T2 values are returned in [milliseconds].
+- Note that compartmental T2 maps will only be outputed if variable TE data was used.
 
 
 <br>
@@ -70,8 +72,8 @@ KERNEL = STARDOM_debug.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,dirs
 ## Some advanced usage options
 The code provides some additional flexibility:
 
-- Batch processing. Parameter estimation on multiple datasets with identical protocols, training is done only once and applied to all.
-- Variable number of compartments ('IAS', 'EAS', 'FW', 'DOT'), any combination of these is allowed.
+- Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
+- Variable number of compartments: 'IAS', 'EAS', 'FW', 'DOT'. Any combination of these is allowed. Only these maps will be outputted.
 - User defined parameter distributions for the training data (for the machine learning estimator that does RotInvs -> kernel).
 - Rician bias correction (to de-bias the DWI before the spherical harmonics fit).
 - **(NOT READY YET)** Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
