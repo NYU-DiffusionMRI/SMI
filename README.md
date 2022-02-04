@@ -47,8 +47,8 @@ Recommended inputs:
 
 - The current SMI implementation is written in Matlab, future work may translate it to other languages.
 
-- For technical details please look at the following publication:
-  - Arxiv SM reproducibility link.
+- For technical details please look at our recent publication:
+  - [Reproducibility of the Standard Model of diffusion in white matter on clinical MRI systems, (2022), ArXiv](https://arxiv.org/).
 
 <br>
 
@@ -143,7 +143,7 @@ A [US patent](https://patents.google.com/patent/US20160343129A1/en) contains som
 %     below.
 %
 % REFERENCES:
-% - Coelho, S., Baete, S., Lemberskiy, G., Ades-Aron, B., Barrol, G., Veraart, J., Novikov, D.S., Fieremans, E., 2022 (ArXiv)
+% - Coelho, S., Baete, S., Lemberskiy, G., Ades-Aron, B., Barrol, G., Veraart, J., Novikov, D.S., Fieremans, E., 2022. Reproducibility of the Standard Model of diffusion in white matter on clinical MRI systems, ArXiv
 % - Novikov, D.S., Veraart, J., Jelescu, I.O., Fieremans, E., 2018. Rotationally-invariant mapping of scalar and orientational metrics of neuronal microstructure with diffusion MRI. NeuroImage 174, 518 – 538
 % - Reisert, M., Kellner, E., Dhital, B., Hennig, J., Kiselev, V.G., 2017. Disentangling micro from mesostructure by diffusion MRI: A Bayesian approach. NeuroImage 147, 964 – 975.
 ```
