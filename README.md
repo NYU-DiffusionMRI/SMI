@@ -78,7 +78,7 @@ Kernel = SMI.fitKernel(dwi,options);
 The code provides some additional flexibility:
 
 - Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
-- Variable number of compartments: 'IAS', 'EAS', 'FW', 'DOT'. Any combination of these is allowed. Only these maps will be outputted.
+- Variable number of compartments: 'IAS', 'EAS', 'FW', 'DOT'. Any combination of these is allowed. Only these maps will be outputted. 'DOT' is only recommended for ex-vivo data.
 - User defined parameter distributions for the training data (for the machine learning estimator that does RotInvs -> kernel).
 - Rician bias correction (to de-bias the DWI before the spherical harmonics fit).
 - **(NOT READY YET)** Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
