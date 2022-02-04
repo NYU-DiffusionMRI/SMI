@@ -119,7 +119,7 @@ Do not hesitate to reach out to Santiago.Coelho@nyulangone.org (or [@santicoelho
 A [US patent](https://patents.google.com/patent/US20160343129A1/en) contains some of the related developments. 
 
 ```
-    %  Author: Santiago Coelho (santiago.coelho@nyulangone.org)
+    %  Authors: Santiago Coelho (santiago.coelho@nyulangone.org), Jelle Veraart, Els Fieremans, Dmitry Novikov
     %  Copyright (c) 2022 New York University
     %              
     %       Permission is hereby granted, free of charge, to any non-commercial entity
