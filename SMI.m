@@ -50,7 +50,125 @@ classdef SMI
 
     methods     ( Static = true )
         % =================================================================
-        
+        function [out] = fit(dwi,options)
+            % [out] = fit(dwi,options)
+            %
+            % This function is a wrapper that fits the and the SM parameters from the
+            % input dwi (4D array) using the information in 'options'.
+            %
+            % First, the rotational invariants of the diffusion signal are estimated.
+            % Then, from these the SM kernel parameters are estimated.
+            
+            if (~isfield(options,'b'))||(~isfield(options,'dirs'))
+                error('b and dirs are compulsory arguments for SMI to run')
+            end
+            b    = options.b;
+            dirs = options.dirs;
+
+            if ~isfield(options,'beta')
+                beta = [];
+            else
+                beta = options.beta;
+            end
+            if ~isfield(options,'TE')
+                TE = [];
+            else
+                TE = options.TE;
+            end
+            
+            % Grab compartments data from options (default is IAS + EAS + FW)
+            flag_compartments=[0 0 0 0];
+            if ~isfield(options,'compartments')
+                flag_compartments=[1 1 1 0];
+            else
+                id_IAS = find(strcmp(options.compartments, 'IAS'));
+                id_EAS = find(strcmp(options.compartments, 'EAS'));
+                id_FW  = find(strcmp(options.compartments, 'FW' ));
+                id_DOT = find(strcmp(options.compartments, 'DOT'));
+                if id_IAS
+                    flag_compartments(1)=1;
+                end
+                if id_EAS
+                    flag_compartments(2)=1;
+                end
+                if id_FW
+                    flag_compartments(3)=1;
+                end
+                if id_DOT
+                    flag_compartments(4)=1;
+                end
+            end
+            
+            if isnan(options.MLTraining.bounds)
+                error('not ready')
+                prior = options.MLTraining.TrainingData;
+            else
+                lb_training = options.MLTraining.bounds(1,:);
+                ub_training = options.MLTraining.bounds(2,:);
+            end
+            
+            if ~isfield(options,'Lmax_training')
+                Lmax_training = 6;
+            else
+                Lmax_training = options.Lmax_training;
+            end
+            
+            if ~isfield(options,'Ntraining')
+                Ntraining = 4e4;
+            else
+                Ntraining = options.Ntraining;
+            end
+            
+            if ~isfield(options,'Nlevels')
+                Nlevels = 10;
+            else
+                Nlevels = options.Nlevels;
+            end
+            
+            if ~isfield(options,'Lmax')
+                Lmax = SMI.GetDefaultLmax(b,beta,TE);
+            else
+                Lmax = options.Lmax;
+            end
+                
+            if ~isfield(options,'mask')
+                sz = size(dwi);
+                mask = true(sz(1:3));
+            else
+                mask = options.mask;
+            end
+            
+            % Apply Rician bias correction if needed
+            if ~isfield(options,'NoiseBias')||strcmp(options.NoiseBias,'None')
+                flag_Rician_bias = 0;
+            elseif strcmp(options.NoiseBias,'Rician')
+                flag_Rician_bias = 1;
+            end
+            
+            if ~isfield(options,'sigma')
+                error('sigma local estimation not ready yet')
+            else
+                sigma = options.sigma;
+            end
+            
+            if flag_Rician_bias
+                ndwi = size(dwi, 4);
+                dwi=sqrt(abs(dwi.^2 - repmat(sigma.^2,[1 1 1 ndwi])));
+            end
+            
+            
+            % Spherical harmonics fit
+            [Slm,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b,dirs,beta,TE,Lmax);
+
+            % Concatenate rotational invariants
+            RotInvs=cat(4,squeeze(Sl(:,:,:,1,:)),squeeze(Sl(:,:,:,2,:)));
+            
+            % Run polynomial regression training and fitting
+            KERNEL = SMI.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,b,dirs,beta,TE,lb_training,ub_training,Lmax_training,Ntraining,Nlevels,[0 0.2]);
+
+            out.kernel = KERNEL;
+
+        end
         % =================================================================
         function [K0] = RotInv_K0_wFW_b_beta_TE_numerical(b,beta,TE,x)
             %
@@ -1001,6 +1119,61 @@ classdef SMI
                 end
             end
         end
+        % =================================================================
+        function plotSlices(ARRAY_4D, slice,clims,names,Nrows,positions,nanTransparent,colorbar_flag)
+            %
+            sz=size(ARRAY_4D);
+            if length(sz)==4
+                Nplots=sz(4);
+            elseif length(sz)==3
+                Nplots=sz(3);
+            end
+
+            if ~exist('positions', 'var') || isempty(positions)
+                positions=1:Nplots;
+            end
+            if ~exist('nanTransparent', 'var') || isempty(nanTransparent)
+                nanTransparent=0;
+            end
+            if ~exist('colorbar_flag', 'var') || isempty(colorbar_flag)
+                colorbar_flag=1;
+            end
+
+            if isvector(clims)
+                clims=repmat(clims,Nplots,1);
+            end
+
+            for ii=1:Nplots
+                subplot(Nrows,ceil(Nplots/Nrows),positions(ii))
+                if ~nanTransparent
+                    if length(sz)==4
+                        imagesc(ARRAY_4D(:,:,slice,ii),clims(ii,:))
+                    elseif length(sz)==3
+                        imagesc(ARRAY_4D(:,:,ii),clims(ii,:))
+                    end
+                else
+                    if length(sz)==4
+                        h=pcolor(ARRAY_4D(:,:,slice,ii)); caxis(clims(ii,:)),set(h, 'EdgeColor', 'none');
+                    elseif length(sz)==3
+                        h=pcolor(ARRAY_4D(:,:,ii)); caxis(clims(ii,:)),set(h, 'EdgeColor', 'none');
+                    end
+                end
+
+                if isempty(names)
+                    title(['case ',num2str(ii)],'interpreter','latex')
+                else
+                    title(names{ii},'interpreter','latex')
+                end
+                set(gca,'FontSize',30), axis off, grid off
+
+                if colorbar_flag
+                cb=colorbar('south'); 
+            %     cb_pos =  cb.Position;cb_pos(3)=0.03;
+            %     set(cb,'position',cb_pos)
+                cb.Ticks=clims(ii,:);    
+                end
+            end
+        end        
         % =================================================================
         function [s, mask] = vectorize(S, mask)
             if nargin == 1
