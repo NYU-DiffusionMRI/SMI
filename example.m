@@ -42,6 +42,7 @@ options.TE   = TE;
 options.mask  = logical(nii_mask.img);
 options.sigma = abs(sigma_nii.img);
 
+
 % Specify options for the fit
 options.compartments = {'IAS','EAS','FW'}; % The order does not matter
 options.NoiseBias    = 'None'; % the example data has ~ zero-mean noise

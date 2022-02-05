@@ -142,7 +142,14 @@ classdef SMI
             end
             
             if ~isfield(options,'sigma')
-                error('sigma local estimation not ready yet')
+                if isempty(TE)
+                    b0_for_sigma_flag=(b<0.1);
+                else
+                    b0_for_sigma_flag=(b<0.1)&(TE==min(TE));
+                end
+                b0s=dwi(:,:,:,b0_for_sigma_flag);
+                stand_dev=std(b0s,[],4);
+                sigma=smooth3(stand_dev,'gaussian',5,1);
             else
                 sigma = options.sigma;
             end
