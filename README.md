@@ -66,11 +66,25 @@ We provide an example dataset [here](https://drive.google.com/drive/folders/1TQz
 ```
 % Load dwi, protocol, and mask
 
-% Perform SM fit
-options.b = 1;
-options.beta = 1;
-Kernel = SMI.fitKernel(dwi,options);
+% Specify protocol information
+options.b    = bval;
+options.beta = beta;
+options.dirs = dirs;
+options.TE   = TE;
+
+% Specify mask and noise map
+options.mask  = logical(mask);
+options.sigma = sigma;
+
+% Specify options for the fit
+options.compartments = {'IAS','EAS','FW'}; % The order does not matter
+options.NoiseBias    = 'None'; % the example data has ~ zero-mean noise
+options.MLTraining.bounds = [0.05   1      1      0.1      0       50    50    0.05;0.95   3      3      1.2      1    150   120    0.99];
+
+% Run SM fitting (dwi is a 4D array)
+[out] = SMI.fit(dwi,options);
 ```
+
 ## Some advanced usage options
 The code provides some additional flexibility:
 
