@@ -53,7 +53,7 @@ We recommend using the default options but the code provides users with some fle
 Recommended inputs:
 - Diffusion data (4D array) + protocol information + mask (binary 3D array) + noise map (3D array).
   - If a mask is not provided the fit will be performed in all voxels present in the first 3 dimensions of the 4D array.
-  - If a noise map is not provided, it will be estimated using the repetitions of the non-diffusion-weighted images.
+  - If a noise map is not provided (not recommended), it will be estimated using the repetitions of the non-diffusion-weighted images.
   - We recommend preprocessing your raw data with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER) before doing SM estimation (DESIGNER outputs a robust noise estimation).
 
 - The current SMI implementation is written in Matlab, future work may translate it to other languages.
