@@ -1,6 +1,3 @@
-![#f03c15](https://via.placeholder.com/15/f03c15/000000?text=+) `Still not ready to go online (THIS IS A DRAFT)`
-
-
 # Standard Model Imaging (SMI) toolbox
 This MATLAB toolbox contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox and a script that analyzes an example dataset.
 
@@ -77,10 +74,11 @@ Kernel = SMI.fitKernel(dwi,options);
 ## Some advanced usage options
 The code provides some additional flexibility:
 
-- Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
-- Variable number of compartments: 'IAS', 'EAS', 'FW', 'DOT'. Any combination of these is allowed. Only these maps will be outputted. 'DOT' is only recommended for ex-vivo data.
+
+- Variable number of compartments: 'IAS', 'EAS', 'FW', 'DOT'. Any combination of these is allowed. Only these maps will be outputted. 'DOT' is only recommended for ex-vivo data. **At the moment the only two options are {'IAS', 'EAS'} or {'IAS', 'EAS', 'FW'}.**
 - User defined parameter distributions for the training data (for the machine learning estimator that does RotInvs -> kernel).
 - Rician bias correction (to de-bias the DWI before the spherical harmonics fit).
+- **(NOT READY YET)**Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
 - **(NOT READY YET)** Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
 
 <br>
