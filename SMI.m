@@ -7,10 +7,6 @@ classdef SMI
     %
     %
     %
-    % Example usage:
-    %
-    %
-    %
     %
     %
     %  Authors: Santiago Coelho (santiago.coelho@nyulangone.org), Jelle Veraart, Els Fieremans, Dmitry Novikov
@@ -96,27 +92,27 @@ classdef SMI
                 end
                 if id_DOT
                     flag_compartments(4)=1;
+                    error('Current version does not support a DOT compartment (update should be ready soon)')
                 end
             end
             
             if isnan(options.MLTraining.bounds)
-                error('not ready')
                 prior = options.MLTraining.TrainingData;
+                if size(prior,2)==6
+                    % Add fake T2s (will be ignored since TE is fixed and T2 will not be estimated)
+                    prior=[prior(:,1:5), 100*ones(size(prior,1),2), prior(:,6)];
+                end
             else
+                if ~isfield(options,'Ntraining')
+                    Ntraining = 4e4;
+                else
+                    Ntraining = options.Ntraining;
+                end
+                Lmax_training=2;
                 lb_training = options.MLTraining.bounds(1,:);
                 ub_training = options.MLTraining.bounds(2,:);
-            end
-            
-            if ~isfield(options,'Lmax_training')
-                Lmax_training = 6;
-            else
-                Lmax_training = options.Lmax_training;
-            end
-            
-            if ~isfield(options,'Ntraining')
-                Ntraining = 4e4;
-            else
-                Ntraining = options.Ntraining;
+                [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,~] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_training);
+                prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
             end
             
             if ~isfield(options,'Nlevels')
@@ -156,7 +152,6 @@ classdef SMI
                 dwi=sqrt(abs(dwi.^2 - repmat(sigma.^2,[1 1 1 ndwi])));
             end
             
-            
             % Spherical harmonics fit
             [Slm,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b,dirs,beta,TE,Lmax);
 
@@ -164,10 +159,189 @@ classdef SMI
             RotInvs=cat(4,squeeze(Sl(:,:,:,1,:)),squeeze(Sl(:,:,:,2,:)));
             
             % Run polynomial regression training and fitting
-            KERNEL = SMI.StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,b,dirs,beta,TE,lb_training,ub_training,Lmax_training,Ntraining,Nlevels,[0 0.2]);
-
+            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments);
             out.kernel = KERNEL;
+        end
+        % =================================================================
+        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments)
+            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments)
+            %
+            % Output: KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit];
 
+            sz_RotInvs=size(RotInvs);
+            if length(sz_RotInvs)==4
+                flag_4D=1;
+            elseif length(sz_RotInvs)==2
+                flag_4D=0;
+            else
+                error('RotInvs must be a 2D or 4D array')
+            end
+
+            if flag_4D
+                if isempty(mask)
+                    mask=true(sz_RotInvs(1:3));
+                end
+                RotInvsNormalized = SMI.vectorize(RotInvs,mask);
+                SigmaNormalized = SMI.vectorize(sigma,mask);
+            else
+                RotInvsNormalized = RotInvs;
+                SigmaNormalized = sigma;
+            end
+
+            s0_lowest_TE=RotInvsNormalized(1,:);
+
+            RotInvsNormalized=(RotInvsNormalized./s0_lowest_TE)';
+            SigmaNormalized=(SigmaNormalized./s0_lowest_TE)';
+
+            % Normalize RotInvs and sigma with the b0 of the lowest TE
+            if ~isvector(bval)
+                error('bval should be a vector')
+            else
+                bval=bval(:)';
+            end
+            if isempty(beta)
+                beta=zeros(size(bval))+1;
+            else
+                beta=beta(:)';
+            end
+            if isempty(TE)
+                TE=zeros(size(bval))+100;
+            else
+                TE=TE(:)';
+            end
+
+            if length(unique(TE))==1
+                do_not_fit_T2=1;
+            else
+                do_not_fit_T2=0;
+            end
+
+            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,[]);
+            Ndirs=table_4D(3,:);
+
+            keep_non_zero_S0=true(1,size(table_4D,2));
+            keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
+            keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2];
+
+            sigma_noise_norm_levels_edges=linspace(sigma_norm_limits(1),sigma_norm_limits(2),Nlevels+1);
+            sigma_noise_norm_levels_ids = discretize(SigmaNormalized,sigma_noise_norm_levels_edges);
+            sigma_noise_norm_levels_ids(SigmaNormalized<sigma_noise_norm_levels_edges(1))=1;
+            sigma_noise_norm_levels_ids(SigmaNormalized>sigma_noise_norm_levels_edges(end))=Nlevels;
+            sigma_noise_norm_levels_mean=1/2*(sigma_noise_norm_levels_edges(2:end)+sigma_noise_norm_levels_edges(1:end-1));
+
+            Degree_Kernel=3;
+            X_fit_norm = SMI.Compute_extended_moments(RotInvsNormalized(:,keep_RotInvs_kernel),Degree_Kernel);
+
+            f=prior(:,1);
+            Da=prior(:,2);
+            Depar=prior(:,3);
+            Deperp=prior(:,4);
+            f_FW=prior(:,5);
+            T2a=prior(:,6);
+            T2e=prior(:,7);
+            p2=prior(:,8);
+            
+            Ntraining=length(f);
+            if ~flag_compartments(1)
+                f=zeros(Ntraining,1);
+            end
+            if ~flag_compartments(3)
+                f_FW=zeros(Ntraining,1);
+            end
+            if ~flag_compartments(2)
+                f=1-f_FW;
+            end            
+                        
+            RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2]);
+            RotInvs_train_norm=RotInvs_train./RotInvs_train(:,1);
+
+            NvoxelsMasked=size(RotInvsNormalized,1);
+            f_ML_fit=zeros(NvoxelsMasked,1);
+            Da_ML_fit=zeros(NvoxelsMasked,1);
+            Depar_ML_fit=zeros(NvoxelsMasked,1);
+            Deperp_ML_fit=zeros(NvoxelsMasked,1);
+            f_FW_ML_fit=zeros(NvoxelsMasked,1);
+            T2a_ML_fit=zeros(NvoxelsMasked,1);
+            T2e_ML_fit=zeros(NvoxelsMasked,1);
+            p2_ML_fit=zeros(NvoxelsMasked,1);
+            for ii=1:Nlevels
+                flag_current_noise_level=sigma_noise_norm_levels_ids==ii;
+                if ~any(flag_current_noise_level)
+                    % fprintf('no need for PR training on noise level %d/%d\n',ii,Nlevels)
+                    continue
+                end
+                % Add noise to training data
+                % constant sigma for noise level range
+                sigma_RotInvs_training=sigma_noise_norm_levels_mean(ii)./sqrt([Ndirs Ndirs*5]);
+                meas_RotInvs_train=RotInvs_train_norm+sigma_RotInvs_training.*randn(size(RotInvs_train_norm));
+                % =========================================================================
+                % Performing PR on RotInvs to estimate the kernel
+                X_train = SMI.Compute_extended_moments(meas_RotInvs_train(:,keep_RotInvs_kernel),Degree_Kernel);
+                Pinv_X=pinv(X_train);
+                coeffs_f=Pinv_X*f;
+                coeffs_Da=Pinv_X*Da;
+                coeffs_Depar=Pinv_X*Depar;
+                coeffs_Deperp=Pinv_X*Deperp;
+                coeffs_f_FW=Pinv_X*f_FW;
+                coeffs_T2a=Pinv_X*T2a;
+                coeffs_T2e=Pinv_X*T2e;
+                coeffs_p2=Pinv_X*p2;
+                f_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_f;
+                Da_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_Da;
+                Depar_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_Depar;
+                Deperp_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_Deperp;
+                f_FW_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_f_FW;
+                T2a_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_T2a;
+                T2e_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_T2e;
+                p2_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_p2;
+                % fprintf('Done PR training on noise level %d/%d\n',ii,Nlevels)
+            end
+            f_ML_fit(f_ML_fit<0)=0;f_ML_fit(f_ML_fit>1)=1;
+            Da_ML_fit(Da_ML_fit<0)=0;Da_ML_fit(Da_ML_fit>3)=3;
+            Depar_ML_fit(Depar_ML_fit<0)=0;Depar_ML_fit(Depar_ML_fit>3)=3;
+            Deperp_ML_fit(Deperp_ML_fit<0)=0;Deperp_ML_fit(Deperp_ML_fit>3)=3;
+            f_FW_ML_fit(f_FW_ML_fit<0)=0;f_FW_ML_fit(f_FW_ML_fit>1)=1;
+            T2a_ML_fit(T2a_ML_fit<30)=30;T2a_ML_fit(T2a_ML_fit>150)=150;
+            T2e_ML_fit(T2e_ML_fit<30)=30;T2e_ML_fit(T2e_ML_fit>150)=150;
+            p2_ML_fit(p2_ML_fit<0)=0;p2_ML_fit(p2_ML_fit>1)=1;
+            if do_not_fit_T2
+                KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit p2_ML_fit]';
+            else
+                KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit]';
+            end
+            if flag_4D
+                KERNEL=SMI.vectorize(KERNEL,mask);
+            end
+        end        
+        % =================================================================
+        function RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params)
+            % RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params)
+            %
+            % kernel_params = [s0 f Da Depar Deperp f_FW T2a T2e p2]
+            %
+            % By: Santiago Coelho
+            s0=kernel_params(:,1);
+            f=kernel_params(:,2);
+            Da=kernel_params(:,3);
+            Depar=kernel_params(:,4);
+            Deperp=kernel_params(:,5);
+            f_FW=kernel_params(:,6);
+            f_extra=1-f-f_FW;
+            T2a=kernel_params(:,7);
+            T2e=kernel_params(:,8);
+            p2=kernel_params(:,9);
+            x=[f, Da, Depar-Deperp, Deperp, f_extra, T2a, T2e];
+            
+            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,[]);                
+            NShells=size(table_4D,2);
+            K0_all=zeros(length(f),NShells);
+            K2_all=zeros(length(f),NShells);
+            
+            for ii=1:length(f)
+                K0_all(ii,:) = SMI.RotInv_K0_wFW_b_beta_TE_numerical(table_4D(1,:),table_4D(2,:),table_4D(4,:),x(ii,:));
+                K2_all(ii,:) = SMI.RotInv_K2_wFW_b_beta_TE_numerical(table_4D(1,:),table_4D(2,:),table_4D(4,:),x(ii,:));
+            end
+            RotInvs=s0.*[K0_all p2.*abs(K2_all)];
         end
         % =================================================================
         function [K0] = RotInv_K0_wFW_b_beta_TE_numerical(b,beta,TE,x)
@@ -459,46 +633,6 @@ classdef SMI
             signal=signal';
         end
         % =================================================================
-        function [signal,RotInvs] = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,bvec,beta,TE,kernel_params,plm,flag_signal,flag_RotInvs)
-            % [signal,RotInvs] = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,bvec,beta,TE,kernel_params,plm,flag_signal,flag_RotInvs)
-            %
-            % kernel_params = [s0 f Da Depar Deperp f_FW T2a T2e p2 plm]
-            %
-            % By: Santiago Coelho
-            s0=kernel_params(:,1);
-            f=kernel_params(:,2);
-            Da=kernel_params(:,3);
-            Depar=kernel_params(:,4);
-            Deperp=kernel_params(:,5);
-            f_FW=kernel_params(:,6);
-            f_extra=1-f-f_FW;
-            T2a=kernel_params(:,7);
-            T2e=kernel_params(:,8);
-            p2=sqrt(sum(plm(:,1:5).^2,2));
-
-            if flag_signal
-                signal=SMI.SM_wFW_b_beta_TE_RealSphHarm_quadInt(f,Da,Depar,Deperp,f_extra,T2a,T2e,plm,b,bvec,beta,TE,770);
-                signal=s0'.*signal;
-            else
-                signal=[];
-            end
-
-            if flag_RotInvs
-                [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,[]);                
-                NShells=size(table_4D,2);
-                K0_all=zeros(length(f),NShells);
-                K2_all=zeros(length(f),NShells);
-                for ii=1:length(f)
-                    current_x=[f(ii),Da(ii),Depar(ii)-Deperp(ii),Deperp(ii),f_extra(ii),T2a(ii),T2e(ii)];
-                    K0_all(ii,:) = SMI.RotInv_K0_wFW_b_beta_TE_numerical(table_4D(1,:),table_4D(2,:),table_4D(4,:),current_x);
-                    K2_all(ii,:) = SMI.RotInv_K2_wFW_b_beta_TE_numerical(table_4D(1,:),table_4D(2,:),table_4D(4,:),current_x);
-                end
-                RotInvs=s0.*[K0_all p2.*abs(K2_all)];
-            else
-                RotInvs=[];
-            end
-        end
-        % =================================================================
         function Moments_Extended = Compute_extended_moments(Moments,degree)
             % Moments_Extended = Compute_extended_moments(Moments,degree)
             %
@@ -548,179 +682,35 @@ classdef SMI
             Moments_Extended=X;
         end
         % =================================================================
-            function KERNEL = StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,bvec,beta,TE,lb_training,ub_training,Lmax_train,Ntraining,Nlevels,sigma_norm_limits)
-                % KERNEL = StandardModel_PR_fit_RotInvs(RotInvs,mask,sigma,bval,bvec,beta,TE,lb_training,ub_training,Lmax_train,Ntraining,Nlevels,sigma_norm_limits)
-                %
-                % RotInvs are normalized here (with the lowest TE S0)
-                %
-                % Output: KERNEL=[f_PR_fit Da_PR_fit Depar_PR_fit Deperp_PR_fit f_FW_PR_fit T2a_PR_fit T2e_PR_fit p2_PR_fit];
-                %
-                % By: Santiago Coelho
-
-                sz_RotInvs=size(RotInvs);
-                if length(sz_RotInvs)==4
-                    flag_4D=1;
-                elseif length(sz_RotInvs)==2
-                    flag_4D=0;
-                else
-                    error('RotInvs must be a 2D or 4D array')
-                end
-
-                if flag_4D
-                    if isempty(mask)
-                        mask=true(sz_RotInvs(1:3));
-                    end
-                    RotInvsNormalized = SMI.vectorize(RotInvs,mask);
-                    SigmaNormalized = SMI.vectorize(sigma,mask);
-                else
-                    RotInvsNormalized = RotInvs;
-                    SigmaNormalized = sigma;
-                end
-
-                s0_lowest_TE=RotInvsNormalized(1,:);
-
-                RotInvsNormalized=(RotInvsNormalized./s0_lowest_TE)';
-                SigmaNormalized=(SigmaNormalized./s0_lowest_TE)';
-
-                % Normalize RotInvs and sigma with the b0 of the lowest TE
-                if ~isvector(bval)
-                    error('bval should be a vector')
-                else
-                    bval=bval(:)';
-                end
-                if isempty(beta)
-                    beta=zeros(size(bval))+1;
-                else
-                    beta=beta(:)';
-                end
-                if isempty(TE)
-                    TE=zeros(size(bval))+100;
-                else
-                    TE=TE(:)';
-                end
-                
-                if length(unique(TE))==1
-                    do_not_fit_T2=1;
-                else
-                    do_not_fit_T2=0;
-                end
-                
-                if length(lb_training)~=8
-                    error('training bounds should have 8 parameters')
-                end
-                [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,[]);
-                Ndirs=table_4D(3,:);
-
-                keep_non_zero_S0=true(1,size(table_4D,2));
-                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
-                keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2];
-
-                sigma_noise_norm_levels_edges=linspace(sigma_norm_limits(1),sigma_norm_limits(2),Nlevels+1);
-                sigma_noise_norm_levels_ids = discretize(SigmaNormalized,sigma_noise_norm_levels_edges);
-                sigma_noise_norm_levels_ids(SigmaNormalized<sigma_noise_norm_levels_edges(1))=1;
-                sigma_noise_norm_levels_ids(SigmaNormalized>sigma_noise_norm_levels_edges(end))=Nlevels;
-                sigma_noise_norm_levels_mean=1/2*(sigma_noise_norm_levels_edges(2:end)+sigma_noise_norm_levels_edges(1:end-1));
-
-                Degree_Kernel=3;
-                X_fit_norm = SMI.Compute_extended_moments(RotInvsNormalized(:,keep_RotInvs_kernel),Degree_Kernel);
-                
-                % If other prior is needed then bounds should contain the samples??
-                if isvector(lb_training)
-                    [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,plm] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_train);
-                else
-                    [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,plm] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_train);
-                end
-                [~,RotInvs_train] = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,bvec,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e],plm,0,1);
-                RotInvs_train_norm=RotInvs_train./RotInvs_train(:,1);
-
-                NvoxelsMasked=size(RotInvsNormalized,1);
-                f_PR_fit=zeros(NvoxelsMasked,1);
-                Da_PR_fit=zeros(NvoxelsMasked,1);
-                Depar_PR_fit=zeros(NvoxelsMasked,1);
-                Deperp_PR_fit=zeros(NvoxelsMasked,1);
-                f_FW_PR_fit=zeros(NvoxelsMasked,1);
-                T2a_PR_fit=zeros(NvoxelsMasked,1);
-                T2e_PR_fit=zeros(NvoxelsMasked,1);
-                p2_PR_fit=zeros(NvoxelsMasked,1);
-                for ii=1:Nlevels
-                    flag_current_noise_level=sigma_noise_norm_levels_ids==ii;
-                    if ~any(flag_current_noise_level)
-                        % fprintf('no need for PR training on noise level %d/%d\n',ii,Nlevels)
-                        continue
-                    end
-                    % Add noise to training data
-                    % constant sigma for noise level range
-                    sigma_RotInvs_training=sigma_noise_norm_levels_mean(ii)./sqrt([Ndirs Ndirs*5]);
-                    meas_RotInvs_train=RotInvs_train_norm+sigma_RotInvs_training.*randn(size(RotInvs_train_norm));
-                    % =========================================================================
-                    % Performing PR on RotInvs to estimate the kernel
-                    X_train = SMI.Compute_extended_moments(meas_RotInvs_train(:,keep_RotInvs_kernel),Degree_Kernel);
-                    Pinv_X=pinv(X_train);
-                    coeffs_f=Pinv_X*f;
-                    coeffs_Da=Pinv_X*Da;
-                    coeffs_Depar=Pinv_X*Depar;
-                    coeffs_Deperp=Pinv_X*Deperp;
-                    coeffs_f_FW=Pinv_X*f_FW;
-                    coeffs_T2a=Pinv_X*T2a;
-                    coeffs_T2e=Pinv_X*T2e;
-                    coeffs_p2=Pinv_X*p2;
-                    f_PR_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_f;
-                    Da_PR_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_Da;
-                    Depar_PR_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_Depar;
-                    Deperp_PR_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_Deperp;
-                    f_FW_PR_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_f_FW;
-                    T2a_PR_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_T2a;
-                    T2e_PR_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_T2e;
-                    p2_PR_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_p2;
-                    % fprintf('Done PR training on noise level %d/%d\n',ii,Nlevels)
-                end
-                f_PR_fit(f_PR_fit<0)=0;f_PR_fit(f_PR_fit>1)=1;
-                Da_PR_fit(Da_PR_fit<0)=0;Da_PR_fit(Da_PR_fit>3)=3;
-                Depar_PR_fit(Depar_PR_fit<0)=0;Depar_PR_fit(Depar_PR_fit>3)=3;
-                Deperp_PR_fit(Deperp_PR_fit<0)=0;Deperp_PR_fit(Deperp_PR_fit>3)=3;
-                f_FW_PR_fit(f_FW_PR_fit<0)=0;f_FW_PR_fit(f_FW_PR_fit>1)=1;
-                T2a_PR_fit(T2a_PR_fit<30)=30;T2a_PR_fit(T2a_PR_fit>150)=150;
-                T2e_PR_fit(T2e_PR_fit<30)=30;T2e_PR_fit(T2e_PR_fit>150)=150;
-                p2_PR_fit(p2_PR_fit<0)=0;p2_PR_fit(p2_PR_fit>1)=1;
-                if do_not_fit_T2
-                    KERNEL=[f_PR_fit Da_PR_fit Depar_PR_fit Deperp_PR_fit f_FW_PR_fit p2_PR_fit]';
-                else
-                    KERNEL=[f_PR_fit Da_PR_fit Depar_PR_fit Deperp_PR_fit f_FW_PR_fit T2a_PR_fit T2e_PR_fit p2_PR_fit]';
-                end
-                if flag_4D
-                    KERNEL=SMI.vectorize(KERNEL,mask);
-                end
+        function [Bset,B3x3xN] = ConstructAxiallySymmetricBset(b,beta,dirs)
+            % [Bset,B3x3xN] = ConstructAxiallySymmetricBset(b,beta,dirs)
+            %
+            % This function computes a set of axially symmetric
+            % b-tensors from their b-value, b-tensor shape, and b-vectors.
+            %
+            % By: Santiago Coelho
+            Ndwi=length(b);
+            Bset=zeros(6,Ndwi);
+            B3x3xN=zeros(3,3,Ndwi);
+            if size(dirs,1)~=3
+                dirs=dirs';
             end
-            % =================================================================
-            function [Bset,B3x3xN] = ConstructAxiallySymmetricBset(b,beta,dirs)
-                % [Bset,B3x3xN] = ConstructAxiallySymmetricBset(b,beta,dirs)
-                %
-                % This function computes a set of axially symmetric
-                % b-tensors from their b-value, b-tensor shape, and b-vectors.
-                %
-                % By: Santiago Coelho
-                Ndwi=length(b);
-                Bset=zeros(6,Ndwi);
-                B3x3xN=zeros(3,3,Ndwi);
-                if size(dirs,1)~=3
-                    dirs=dirs';
-                end
-                if size(dirs,2)~=Ndwi || length(beta)~=Ndwi
-                    error('dirs should have the same number of columns as elements in b and beta')
-                end
-
-                for ii=1:Ndwi
-                    B_aux= beta(ii)*dirs(:,ii)*dirs(:,ii)' + 1/3*(1-beta(ii))* eye(3);
-                    B_aux=B_aux/trace(B_aux);
-                    if any(isnan(B_aux(:)))
-                        B_aux=zeros(3);
-                    else
-                        B_aux=b(ii)*B_aux;
-                    end
-                    Bset(:,ii)=[B_aux(1,1),B_aux(2,2),B_aux(3,3),B_aux(1,2),B_aux(1,3),B_aux(2,3)]';
-                    B3x3xN(:,:,ii)=B_aux;
-                end
+            if size(dirs,2)~=Ndwi || length(beta)~=Ndwi
+                error('dirs should have the same number of columns as elements in b and beta')
             end
+
+            for ii=1:Ndwi
+                B_aux= beta(ii)*dirs(:,ii)*dirs(:,ii)' + 1/3*(1-beta(ii))* eye(3);
+                B_aux=B_aux/trace(B_aux);
+                if any(isnan(B_aux(:)))
+                    B_aux=zeros(3);
+                else
+                    B_aux=b(ii)*B_aux;
+                end
+                Bset(:,ii)=[B_aux(1,1),B_aux(2,2),B_aux(3,3),B_aux(1,2),B_aux(1,3),B_aux(2,3)]';
+                B3x3xN(:,:,ii)=B_aux;
+            end
+        end
         % =================================================================
         function [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(DWI,mask,bval,bvec,beta,TE,Lmax)
             % [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(DWI,mask,bval,bvec,beta,TE,Lmax)
@@ -745,7 +735,6 @@ classdef SMI
             %          and it is provided in table_4D_sorted
             %
             % By: Santiago Coelho
-            warning('Remember to input Lmax for sorted shells!')
             sz_DWI=size(DWI);
             if length(sz_DWI)==4
                 flag_4D=1;
