@@ -5,7 +5,7 @@
 
 ## Overview: The Standard Model of diffusion in white matter
 
-Over the last 15-20 years, multiple approaches aimed to model the physics of water diffusion in white matter have relied on similar assumptions. This led to the unifying framework dubbed Standard Model (SM) of diffusion in WM as formulated in ([Novikov et al., 2019](https://doi.org/10.1002/mrm.27101)). In a nutshell, this model disentangles signal contributions from different structures, i.e. compartments, present in a white matter voxel. 
+Over the last 15-20 years, multiple approaches aimed to model the physics of water diffusion in white matter have relied on similar assumptions. This led to the unifying framework dubbed Standard Model (SM) of diffusion in WM as formulated in ([Novikov et al., 2018](https://doi.org/10.1016/j.neuroimage.2018.03.006)). In a nutshell, this model disentangles signal contributions from different structures, i.e. compartments, present in a white matter voxel. 
 
 <img width="1657" alt="kernel_wEqConvolution_v2" src="https://user-images.githubusercontent.com/54751227/152564788-fc6a0fe0-1002-4354-b75e-3f962303a9ad.png">
 
