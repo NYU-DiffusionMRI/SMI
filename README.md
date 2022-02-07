@@ -5,20 +5,23 @@ This MATLAB toolbox contains all necessary functions for parameter estimation of
 
 ## Overview: The Standard Model of diffusion in white matter
 
-# Statememt on GM
-
 Over the last 15-20 years, multiple approaches aimed to model the physics of water diffusion in white matter have relied on similar assumptions. This led to the unifying framework dubbed Standard Model (SM) of diffusion in WM as formulated in ([Novikov et al., 2019](https://doi.org/10.1002/mrm.27101)). In a nutshell, this model disentangles signal contributions from different structures, i.e. compartments, present in a white matter voxel. 
 
 <img width="1657" alt="kernel_wEqConvolution_v2" src="https://user-images.githubusercontent.com/54751227/152564788-fc6a0fe0-1002-4354-b75e-3f962303a9ad.png">
 
-### Assumption page 'paragraph'
-
-Briefly, axons (and possibly glial processes) are represented by impermeable zero-radius cylinders (the so-called “sticks”) arranged in locally coherent fiber fascicles. The diffusion in the extra-axonal space of each fascicle is assumed to be Gaussian and described by an axially symmetric diffusion tensor. The third, optional tissue compartment is the cerebro-spinal fluid (CSF). Such multicomponent fascicles (also called kernel) are distributed in a voxel according to an arbitrary fiber orientation distribution function (ODF). All fascicles in a voxel are assumed to have the same compartment fractions and diffusivities, and differ from each other only by orientation.
+Briefly, axons (and possibly glial processes) are represented by impermeable zero-radius cylinders (the so-called “sticks”) arranged in locally coherent fiber fascicles. The diffusion in the extra-axonal space of each fascicle is assumed to be Gaussian and described by an axially symmetric diffusion tensor. The third, optional tissue compartment is the cerebro-spinal fluid. Such multicomponent fascicles (also called kernel) are distributed in a voxel according to an arbitrary fiber orientation distribution function (ODF). All fascicles in a voxel are assumed to have the same compartment fractions and diffusivities, and differ from each other only by orientation.
 
 The SM encompasses a number of WM models made of anisotropic Gaussian compartments with axons represented by sticks ([Kroenke et al., 2004]( https://doi.org/10.1002/mrm.20260); [Jespersen et al., 2007](https://doi.org/10.1016/j.neuroimage.2006.10.037), [2010](https://doi.org/10.1016/j.neuroimage.2009.08.053); [Fieremans et al., 2011](https://doi.org/10.1016/j.neuroimage.2011.06.006); [Zhang et al., 2012](https://doi.org/10.1016/j.neuroimage.2012.03.072); [Sotiropoulos et al., 2012](https://doi.org/10.1016/j.neuroimage.2012.01.056); [Jensen et al., 2016](https://doi.org/10.1016/j.neuroimage.2015.09.049); [Jelescu et al., 2016a](https://doi.org/10.1002/nbm.3450); [Kaden et al., 2016](https://doi.org/10.1016/j.neuroimage.2016.06.002); [Reisert et al., 2017](https://doi.org/10.1016/j.neuroimage.2016.09.058); [Novikov et al., 2018](https://doi.org/10.1016/j.neuroimage.2018.03.006); [Veraart et al., 2018](https://doi.org/10.1016/j.neuroimage.2017.09.030), to mention a few). From the SM point of view, earlier models impose constraints either on compartment parameters or the functional form of the fiber ODF; such constraints improve robustness but may introduce biases into the estimation of remaining parameters.
 
 For more details please look at our recent publication: [Reproducibility of the Standard Model of diffusion in white matter on clinical MRI systems, (2022), ArXiv](https://arxiv.org/), or Section 3 in this review by [Novikov et al. (2018)](https://doi.org/10.1002/nbm.3998).
 
+#### Assumptions in a nutshell
+- Sufficient coarse-graining for Gaussian diffusion at the compartment level (thus, no time-dependence)
+- Negligible water exchange between compartments
+- No assumptions on compartments' diffusivities
+- No assumptions on the functional form of the ODF
+
+Note that this model does not apply to gray matter, where exchange and the presence of soma exchange cannot be ignored.
 
 <br>
 
@@ -58,10 +61,6 @@ Standard Model parameters (diffusion) + compartmental T2 values (only if multipl
 - Compartmental T2 values are returned in [milliseconds].
 - Note that compartmental T2 maps will only be outputed if variable TE data was used.
 
-
-
-<br>
-## Parameter estimation, how it works?
 <br>
 
 ## Recommended usage
@@ -104,14 +103,22 @@ options.MLTraining.bounds = [0.05   1      1      0.1      0       50    50    0
 [out] = SMI.fit(dwi,options);
 ```
 
+
+<br>
+## Parameter estimation
+First, the rotational invariants of the diffusion signal are estimated. This is done using a least squares estimator. If data has a non-negligible rician bias, we suggest to correct it during the fitting (see advanced options below).
+
+Then, the SM parameters are estimated from the rotational invariants of the signal. Unlike conventional parameter estimation approaches which rely on an analytical forward model, e.g. maximum likelihood, here we use data-driven machine learning (ML) regression. This is done by applying a sufficiently flexible nonlinear regression to _training data_ generated with the forward model of interest, considering a wide distribution of model parameters, the noise level, and the protocol that was used. Then, such regression is applied to the data of interest.
+
+For typical SNR values found in clinical dMRI experiments, the optimal regression, i.e. minimizing MSE of the training data, can be achieved already by a cubic polynomial, as it  captures all relevant degrees of freedom in the data represented by the set of rotational invariants.
+
+
+
 ## Some advanced usage options
 The code provides some additional flexibility:
-
-
-- Variable number of compartments: 'IAS', 'EAS', 'FW', 'DOT'. Any combination of these is allowed. Only these maps will be outputted. 'DOT' is only recommended for ex-vivo data. **At the moment the only two options are {'IAS', 'EAS'} or {'IAS', 'EAS', 'FW'}.**
-- - Throw out dot
-- User defined parameter distributions for the training data (for the machine learning estimator that does RotInvs -> kernel).
-- Rician bias correction (to de-bias the DWI before the spherical harmonics fit).
+- Rician bias correction: to de-bias the DWI before the spherical harmonics fit.
+- Variable number of compartments: 'IAS', 'EAS', 'FW'. **At the moment the only two options are {'IAS', 'EAS'} or {'IAS', 'EAS', 'FW'}.**
+- User defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - **(NOT READY YET)** Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
 - **(NOT READY YET)** Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
 
