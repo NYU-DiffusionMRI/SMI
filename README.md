@@ -16,12 +16,13 @@ The SM encompasses a number of WM models made of anisotropic Gaussian compartmen
 For more details please look at our recent publication: [Reproducibility of the Standard Model of diffusion in white matter on clinical MRI systems, (2022), ArXiv](https://arxiv.org/), or Section 3 in this review by [Novikov et al. (2018)](https://doi.org/10.1002/nbm.3998).
 
 #### Assumptions in a nutshell
-- Sufficient coarse-graining for Gaussian diffusion at the compartment level (thus, no time-dependence)
-- Negligible water exchange between compartments
-- No assumptions on compartments' diffusivities
+- Sufficient coarse-graining for Gaussian diffusion at the fiber bundle level (thus, no time-dependence)
+- All fiber bundles inside a voxel have the same microstructural properties
+- Negligible water exchange between compartments in a bundle
+- No assumptions on the fibre bundle's diffusivities
 - No assumptions on the functional form of the ODF
 
-Note that this model does not apply to gray matter, where exchange and the presence of soma cannot be ignored.
+_Note that this model does not apply to gray matter, where exchange and the presence of soma cannot be ignored._
 
 <br>
 
@@ -29,24 +30,25 @@ Note that this model does not apply to gray matter, where exchange and the prese
 ## SMI input data
 
 
+### Minimal requrements for linear tensor encoding (LTE)
+- This implementation of the SM supports as input a 4D array [nx x ny x nz x N] of diffusion-weighted data, meaning a 3D spatial arrangement of voxels with N diffusion measurements arranged along 4th dimention.
+- A b-value (.bval) file is needed, this must be a [1 x N] vector.
+- A b-vectors (.bvec) file is needed, this must be a [3 x N] vector.
+- A noise map, this must be a 3D array of size [nx x ny x nz]. This can be previously estimated using MPPCA, see [this Matlab implementation](https://github.com/NYU-DiffusionMRI/mppca_denoise). 
 
-### Minimal requrements (2 comp + input data) ; Add noise map here
-### Units be careful
-How you can translate them. Note that b=1000 [seconds / (squared millimeters)] = 1 [milliseconds / (squared micrometers)].
+_On the b-value units:_ We recommend microstructural units [milliseconds / (squared micrometers)].
+Note that typical scanner units are b=1000 [seconds / (squared millimeters)] which equal 1 [milliseconds / (squared micrometers)], thus to convert from scanner units to microstructural units one should divide by 1000. 
 
-Introduce N here
-This implementation of the SM supports as input a 4D array of diffusion-weighted data (3D spatial arrangement of voxels + diffusion measurements along 4th dimention). Measurements can have:
-- Multiple b-values (b). This input can be a column or row vector with the same length as the 4th dimension of the input data. We recommend microstructural units [milliseconds / (squared micrometers)]. Note that b=1000 [seconds / (squared millimeters)] = 1 [milliseconds / (squared micrometers)].
-- Multiple b-vectors or directions (each measurement must have its own direction, [3 x N] array).
-- Multiple **B**-tensor shapes (β). This input can be a column or row vector with the same length as the 4th dimension of the input data. Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape.
-- Multiple echo times (TE, assumed to be in [milliseconds]). This input can be a column or row vector with the same length as the 4th dimension of the input data.
+### Data with non-LTE encodings and variable echo times (TE)
+Input data can also have:
+- Multiple **B**-tensor shapes (specified by β). This input must be a [1 x N] vector. Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape.
+- Multiple echo times (TE, assumed to be in [milliseconds]). This input must be a [1 x N] vector.
 
-Each measurement is thus fully specified by: a b-value (b), a unit direction (**u**) (axis of symmetry of **B**), a b-tensor shape (β), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
+In this general scenario, each measurement is thus fully specified by: a b-value (b), a unit direction (**u**) (axis of symmetry of **B**), a b-tensor shape (β), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
 <p align="center">
   <img width="500" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
 </p>
 
-  - b-values and directions must be supplied for each measurement.
   - If no β is supplied (this input can be empty array) the code assumes β=1 (linear tensor encoding, LTE, measurements).
   - If no TE is supplied (this input can be empty array), the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted.
 
@@ -117,14 +119,12 @@ For typical SNR values found in clinical dMRI experiments, the optimal regressio
 ## Some advanced usage options
 The code provides some additional flexibility:
 - Rician bias correction: to de-bias the DWI before the spherical harmonics fit.
-- Variable number of compartments: 'IAS', 'EAS', 'FW'. **At the moment the only two options are {'IAS', 'EAS'} or {'IAS', 'EAS', 'FW'}.**
+- Variable number of compartments: 'IAS', 'EAS', 'FW'. **This will be extended but at the moment the only two options are {'IAS', 'EAS'} or {'IAS', 'EAS', 'FW'}.**
 - User defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - **(NOT READY YET)** Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
 - **(NOT READY YET)** Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
 
 <br>
-
-
 
 ## SMI Authors
 - [Santiago Coelho](https://santiagocoelho.github.io/)
