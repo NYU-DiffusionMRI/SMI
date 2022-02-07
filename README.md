@@ -64,6 +64,9 @@ Recommended inputs:
 We provide an example dataset [here](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing) that was preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). This contains multiple b-values, tensor shapes, and echo times. See the example file 'example.m' with the SMI fit of a subset of the data with only 1 TE, and with the full dataset. Note that data is provided in nifti format, we used [this nifti toolbox](https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) but feel free to use any and modify the lines where the data is loaded.
 
 ```
+% Add SMI.m to the path, e.g.:
+addpath('/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI')
+
 % Load dwi, protocol, and mask
 
 % Specify protocol information
