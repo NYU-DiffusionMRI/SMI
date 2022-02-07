@@ -21,16 +21,16 @@ For more details please look at our recent publication: [Reproducibility of the 
 - No assumptions on compartments' diffusivities
 - No assumptions on the functional form of the ODF
 
-Note that this model does not apply to gray matter, where exchange and the presence of soma exchange cannot be ignored.
+Note that this model does not apply to gray matter, where exchange and the presence of soma cannot be ignored.
 
 <br>
 
 
 ## SMI input data
 
-### Add noise map here
 
-### Minimal requrements (2 comp + input data)
+
+### Minimal requrements (2 comp + input data) ; Add noise map here
 ### Units be careful
 How you can translate them. Note that b=1000 [seconds / (squared millimeters)] = 1 [milliseconds / (squared micrometers)].
 
