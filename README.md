@@ -59,7 +59,7 @@ In this general scenario, each measurement is thus fully specified by: a b-value
 Standard Model parameters (diffusion) + compartmental T2 values (only if multiple TE data was provided). See figure below for some examples:
 <img width="1690" alt="SM_maps_github" src="https://user-images.githubusercontent.com/54751227/152456997-5f24f886-03f9-4eb2-a5f8-1dd767134eae.png">
 - Fractions (f, fw) and anisotropy (p2) are adimensional.
-- Diffusivities are returned in microstructural units [squared micrometers / milliseconds].
+- Diffusivities are returned in microstructural units [squared micrometers / milliseconds] (independently of input units).
 - Compartmental T2 values are returned in [milliseconds].
 - Note that compartmental T2 maps will only be outputed if variable TE data was used.
 
@@ -71,7 +71,7 @@ Recommended inputs:
 - Diffusion data (4D array) + protocol information + mask (binary 3D array) + noise map (3D array).
   - If a mask is not provided the fit will be performed in all voxels present in the first 3 dimensions of the 4D array.
   - If a noise map is not provided (not recommended), it will be estimated using the repetitions of the non-diffusion-weighted images.
-  - We recommend preprocessing your raw data with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER) before doing SM estimation (DESIGNER outputs a robust noise estimation).
+  - We recommend preprocessing your raw data with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER) before doing SM estimation. DESIGNER outputs a robust noise estimation, otherwise [MPPCA](https://github.com/NYU-DiffusionMRI/mppca_denoise) can be used to robustly estimate the noise level.
 
 - The current SMI implementation is written in Matlab, future work may translate it to other languages.
 
@@ -104,9 +104,8 @@ options.MLTraining.bounds = [0.05   1      1      0.1      0       50    50    0
 % Run SM fitting (dwi is a 4D array)
 [out] = SMI.fit(dwi,options);
 ```
-
-
 <br>
+
 ## Parameter estimation
 First, the rotational invariants of the diffusion signal are estimated. This is done using a least squares estimator. If data has a non-negligible rician bias, we suggest to correct it during the fitting (see advanced options below).
 
@@ -119,7 +118,7 @@ For typical SNR values found in clinical dMRI experiments, the optimal regressio
 ## Some advanced usage options
 The code provides some additional flexibility:
 - Rician bias correction: to de-bias the DWI before the spherical harmonics fit.
-- Variable number of compartments: 'IAS', 'EAS', 'FW'. **This will be extended but at the moment the only two options are {'IAS', 'EAS'} or {'IAS', 'EAS', 'FW'}.**
+- Variable number of compartments: 'IAS', 'EAS', 'FW'. _This will be extended but at the moment the only two options are {'IAS', 'EAS'} or {'IAS', 'EAS', 'FW'}._
 - User defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - **(NOT READY YET)** Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
 - **(NOT READY YET)** Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
