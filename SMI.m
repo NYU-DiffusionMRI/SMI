@@ -5,8 +5,34 @@ classdef SMI
     % modeling white matter microstructure with diffusion MRI (supports
     % diffusion relaxometry data too)
     %
+    %
+    % Compulsory inputs:
+    %       - dwi (4D array: [nx x ny x nz x N]) with diffusion-weighted data
+    %       - b [1 x N] array with b-values
+    %       - dirs [3 x N] array with b-vectors
+    %       - sigma (3D array: [nx x ny x nz]) with the noise map
+    %
+    % =====================================================================
+    % Minimal usage:
+    %
+    % % % Add SMI.m to the path, e.g.:
+    % addpath('/Documents/SantiagoCoelho/Git/SMI')
     % 
-    % Typical usage:
+    % % % Load dwi, protocol, and mask
+    % 
+    % % % Specify protocol information
+    % options.b    = bval;
+    % options.dirs = dirs;
+    % 
+    % % % Specify mask and noise map
+    % options.mask  = logical(mask);
+    % options.sigma = sigma;
+    % 
+    % % % Run SM fitting (dwi is a 4D array)
+    % [out] = SMI.fit(dwi,options);
+    % 
+    % =====================================================================
+    % More advanced usage:
     %
     % % % Add SMI.m to the path, e.g.:
     % addpath('/Documents/SantiagoCoelho/Git/SMI')
@@ -25,15 +51,12 @@ classdef SMI
     % 
     % % % Specify options for the fit
     % options.compartments = {'IAS','EAS','FW'}; % The order does not matter
-    % options.NoiseBias    = 'None'; % the example data has ~ zero-mean noise
+    % options.NoiseBias    = 'Rician'; % use 'None' for zero-mean noise
     % 
     % % % Run SM fitting (dwi is a 4D array)
     % [out] = SMI.fit(dwi,options);
     %
-    %
-    %
-    %
-    %
+    % =====================================================================
     %
     % % % ADVANCED OPTIONS:
     %
@@ -71,11 +94,7 @@ classdef SMI
     % options.sigma contains a 3D array with the noise level, this can be
     % computed using MPPCA (see github documentation for more details)
     %
-    %
-    % 
-    %
-    %
-    %
+    % =====================================================================
     %
     %  Authors: Santiago Coelho (santiago.coelho@nyulangone.org), Jelle Veraart, Els Fieremans, Dmitry Novikov
     %  Copyright (c) 2022 New York University
