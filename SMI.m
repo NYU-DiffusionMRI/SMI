@@ -12,6 +12,31 @@ classdef SMI
     %       - dirs [3 x N] array with b-vectors
     %       - sigma (3D array: [nx x ny x nz]) with the noise map
     %
+    % Outputs:
+    %       [out] = SMI.fit(dwi,options);
+    %
+    %       out.kernel has a [nx x ny x nz x 6] array (if input data had a
+    %       fixed TE)
+    %       with the kernel parameters in the following order:
+    %       (f, Da, Deparallel, Deperpendicular, fw, p2)
+    %
+    %       out.kernel has a [nx x ny x nz x 8] array (if input data had a
+    %       multiple TE)
+    %       with the kernel parameters in the following order:
+    %       (f, Da, Deparallel, Deperpendicular, fw, T2a, T2e, p2)
+    %
+    %       out.shells is a [4 x Nshells] array: [b;beta;#directions;TE]
+    %       one column per shell.
+    %       This matrix sorts all the shells in the protocol by columns.
+    %       Nshells is the total number of 'shells' (shell: unique
+    %       combination of {b,beta,TE} )
+    %
+    %       out.RotInvs.S0 contains a [nx x ny x nz x Nshells] array with
+    %       the zeroth order rotational invariant at each shell
+    %       out.RotInvs.S2 contains a [nx x ny x nz x Nshells] array with
+    %       the second order rotational invariant at each shell
+    %       out.RotInvs.S0/S2 are ordered like the shells in out.shells
+    %
     % =====================================================================
     % Minimal usage:
     %
@@ -257,6 +282,9 @@ classdef SMI
 
             % Concatenate rotational invariants
             RotInvs=cat(4,squeeze(Sl(:,:,:,1,:)),squeeze(Sl(:,:,:,2,:)));
+            out.RotInvs.S0=squeeze(Sl(:,:,:,1,:));
+            out.RotInvs.S2=squeeze(Sl(:,:,:,2,:));         
+            out.shells=table_4D_sorted;
             
             % Run polynomial regression training and fitting
             KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments);
