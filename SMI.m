@@ -1,10 +1,78 @@
 classdef SMI
-    % SMI: Standard Model Imaging
+    % SMI: Standard Model Imaging class
     %
     % SMI is an implementation of the Standard Model framework for
     % modeling white matter microstructure with diffusion MRI (supports
     % diffusion relaxometry data too)
     %
+    % 
+    % Typical usage:
+    %
+    % % % Add SMI.m to the path, e.g.:
+    % addpath('/Documents/SantiagoCoelho/Git/SMI')
+    % 
+    % % % Load dwi, protocol, and mask
+    % 
+    % % % Specify protocol information
+    % options.b    = bval;
+    % options.beta = beta;
+    % options.dirs = dirs;
+    % options.TE   = TE;
+    % 
+    % % % Specify mask and noise map
+    % options.mask  = logical(mask);
+    % options.sigma = sigma;
+    % 
+    % % % Specify options for the fit
+    % options.compartments = {'IAS','EAS','FW'}; % The order does not matter
+    % options.NoiseBias    = 'None'; % the example data has ~ zero-mean noise
+    % 
+    % % % Run SM fitting (dwi is a 4D array)
+    % [out] = SMI.fit(dwi,options);
+    %
+    %
+    %
+    %
+    %
+    %
+    % % % ADVANCED OPTIONS:
+    %
+    % % % The protocol is defined by
+    % options.b
+    % options.dirs
+    % options.beta
+    % options.TE
+    %
+    % % % Select compartments (FW can be removed)
+    % options.compartments = {'IAS','EAS','FW'};
+    %
+    % % % Bounds for training data sampled from a uniform distribution       
+    % options.MLTraining.Ntraining is the number of training samples (default is 40000)
+    % lb_training = options.MLTraining.bounds % [2 x 8] array of lower and upper bounds
+    % default is options.MLTraining.bounds = [0.05, 1, 1, 0.1, 0, 50, 50, 0.05; 0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
+    %
+    % If options.MLTraining does not exist then the training data is generated with the default options
+    %
+    % options.Nlevels divides the range of noise levels into Nlevels. This
+    % performs a separate regression for each noise level and applies to each
+    % voxel the corresponding one depending on its SNR (default is 10 levels)
+    %
+    % % % masking
+    % options.mask contains a 3D logical array with the values where the fit
+    % should be applied
+    %
+    % % % Noise bias
+    % options.NoiseBias = 'None' (default) the spherical harmonics are fit to the
+    %                     DWI
+    % options.NoiseBias = 'Rician' a Rician bias correction step is applied to 
+    %                     the DWI before the spherical harmonics fitting
+    %
+    % % % Noise level
+    % options.sigma contains a 3D array with the noise level, this can be
+    % computed using MPPCA (see github documentation for more details)
+    %
+    %
+    % 
     %
     %
     %
@@ -103,14 +171,19 @@ classdef SMI
                     prior=[prior(:,1:5), 100*ones(size(prior,1),2), prior(:,6)];
                 end
             else
-                if ~isfield(options,'Ntraining')
+                if ~isfield(options.MLTraining,'Ntraining')
                     Ntraining = 4e4;
                 else
-                    Ntraining = options.Ntraining;
+                    Ntraining = options.MLTraining.Ntraining;
                 end
                 Lmax_training=2;
-                lb_training = options.MLTraining.bounds(1,:);
-                ub_training = options.MLTraining.bounds(2,:);
+                if ~isfield(options,'MLTraining')
+                    lb_training = [0.05, 1, 1, 0.1,   0,  50,  50, 0.05];
+                    ub_training = [0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
+                else
+                    lb_training = options.MLTraining.bounds(1,:);
+                    ub_training = options.MLTraining.bounds(2,:);
+                end
                 [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,~] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_training);
                 prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
             end
@@ -150,6 +223,7 @@ classdef SMI
                 b0s=dwi(:,:,:,b0_for_sigma_flag);
                 stand_dev=std(b0s,[],4);
                 sigma=smooth3(stand_dev,'gaussian',5,1);
+                warning('sigma was not an input (not recommended)')
             else
                 sigma = options.sigma;
             end

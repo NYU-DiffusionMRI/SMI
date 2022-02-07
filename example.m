@@ -46,7 +46,7 @@ options.sigma = abs(sigma_nii.img);
 % Specify options for the fit
 options.compartments = {'IAS','EAS','FW'}; % The order does not matter
 options.NoiseBias    = 'None'; % the example data has ~ zero-mean noise
-options.MLTraining.bounds = [0.05   1      1      0.1      0       50    50    0.05;0.95   3      3      1.2      1    150   120    0.99];
+options.MLTraining.bounds = [0.05, 1, 1, 0.1, 0, 50, 50, 0.05; 0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
 
 % Run SM fitting
 tic
