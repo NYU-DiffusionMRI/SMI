@@ -5,7 +5,7 @@
 
 ## Overview: The Standard Model of diffusion in white matter
 
-Over the last 15-20 years, multiple approaches aimed to model the physics of water diffusion in white matter have relied on similar assumptions. This led to the unifying framework dubbed Standard Model (SM) of diffusion in WM as formulated in ([Novikov et al., 2018](https://doi.org/10.1016/j.neuroimage.2018.03.006)). In a nutshell, this model disentangles signal contributions from different structures, i.e. compartments, present in a white matter voxel. 
+Over the last 15-20 years, multiple approaches aimed to model the physics of water diffusion in white matter have relied on similar assumptions. This led to the unifying framework dubbed Standard Model (SM) of diffusion in WM as formulated in ([Novikov et al., 2018](https://doi.org/10.1016/j.neuroimage.2018.03.006))[^2]. In a nutshell, this model disentangles signal contributions from different structures, i.e. compartments, present in a white matter voxel. 
 
 <img width="1657" alt="kernel_wEqConvolution_v2" src="https://user-images.githubusercontent.com/54751227/152564788-fc6a0fe0-1002-4354-b75e-3f962303a9ad.png">
 
@@ -200,3 +200,5 @@ A [US patent](https://patents.google.com/patent/US20160343129A1/en) contains som
     - Coelho, S., Baete, S., Lemberskiy, G., Ades-Aron, B., Barrol, G., Veraart, J., Novikov, D.S., Fieremans, E., 2022. Reproducibility of the Standard Model of diffusion in white matter on clinical MRI systems, 2022, ArXiv.
     - Dmitry S. Novikov, Jelle Veraart, Ileana O. Jelescu, Els Fieremans, Rotationally-invariant mapping of scalar and orientational metrics of neuronal microstructure with diffusion MRI, NeuroImage, Volume 174, 2018, Pages 518-538.
     - Marco Reisert, Elias Kellner, Bibek Dhital, Jürgen Hennig, Valerij G. Kiselev, Disentangling micro from mesostructure by diffusion MRI: A Bayesian approach, NeuroImage, Volume 147, 2017, Pages 964-975.
+    
+[^2]: The SM name originates from a tongue-in-cheek association with the Standard Model in particle physics, as both encompass a fair bit of previous modeling effort from various groups. Here “standard” refers to common assumptions among modeling approaches and does not imply “exact”.
