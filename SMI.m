@@ -48,6 +48,8 @@ classdef SMI
     % % % Specify protocol information
     % options.b    = bval;
     % options.dirs = dirs;
+    % options.MergeDistance = []; % If []: default is 0.05 [ms/um^2], this 
+    % is the threshold for considering different b-values as the same shell
     % 
     % % % Specify mask and noise map
     % options.mask  = logical(mask);
@@ -172,7 +174,13 @@ classdef SMI
             end
             b    = options.b;
             dirs = options.dirs;
-
+            
+            if ~isfield(options,'MergeDistance')
+                MergeDistance = [];
+            else
+                MergeDistance = options.MergeDistance;
+            end
+            
             if ~isfield(options,'beta')
                 beta = [];
             else
@@ -239,7 +247,7 @@ classdef SMI
             end
             
             if ~isfield(options,'Lmax')
-                Lmax = SMI.GetDefaultLmax(b,beta,TE);
+                Lmax = SMI.GetDefaultLmax(b,beta,TE,MergeDistance);
             else
                 Lmax = options.Lmax;
             end
@@ -278,7 +286,7 @@ classdef SMI
             end
             
             % Spherical harmonics fit
-            [Slm,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b,dirs,beta,TE,Lmax);
+            [Slm,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b,dirs,beta,TE,Lmax,MergeDistance);
 
             % Concatenate rotational invariants
             RotInvs=cat(4,squeeze(Sl(:,:,:,1,:)),squeeze(Sl(:,:,:,2,:)));
@@ -287,12 +295,12 @@ classdef SMI
             out.shells=table_4D_sorted;
             
             % Run polynomial regression training and fitting
-            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments);
+            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance);
             out.kernel = KERNEL;
         end
         % =================================================================
-        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments)
-            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments)
+        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance)
+            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance)
             %
             % Output: KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit];
 
@@ -344,7 +352,7 @@ classdef SMI
                 do_not_fit_T2=0;
             end
 
-            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,[]);
+            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,MergeDistance);
             Ndirs=table_4D(3,:);
 
             keep_non_zero_S0=true(1,size(table_4D,2));
@@ -380,7 +388,7 @@ classdef SMI
                 f=1-f_FW;
             end            
                         
-            RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2]);
+            RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2],MergeDistance);
             RotInvs_train_norm=RotInvs_train./RotInvs_train(:,1);
 
             NvoxelsMasked=size(RotInvsNormalized,1);
@@ -442,8 +450,8 @@ classdef SMI
             end
         end        
         % =================================================================
-        function RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params)
-            % RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params)
+        function RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params,MergeDistance)
+            % RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params,MergeDistance)
             %
             % kernel_params = [s0 f Da Depar Deperp f_FW T2a T2e p2]
             %
@@ -460,7 +468,7 @@ classdef SMI
             p2=kernel_params(:,9);
             x=[f, Da, Depar-Deperp, Deperp, f_extra, T2a, T2e];
             
-            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,[]);                
+            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,MergeDistance);                
             NShells=size(table_4D,2);
             K0_all=zeros(length(f),NShells);
             K2_all=zeros(length(f),NShells);
@@ -840,8 +848,8 @@ classdef SMI
             end
         end
         % =================================================================
-        function [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(DWI,mask,bval,bvec,beta,TE,Lmax)
-            % [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(DWI,mask,bval,bvec,beta,TE,Lmax)
+        function [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(DWI,mask,bval,bvec,beta,TE,Lmax,MergeDistance)
+            % [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(DWI,mask,bval,bvec,beta,TE,Lmax,MergeDistance)
             % 
             % This function performs the linear fit of Slm on each shell using real spherical
             % harmonics as defined in https://cs.dartmouth.edu/~wjarosz/publications/dissertation/appendixB.pdf
@@ -904,7 +912,7 @@ classdef SMI
                 error('bval should be a vector with the same length as the number of DWI')
             end
 
-            [bb,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,[]);
+            [bb,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,MergeDistance);
 
             Nshells=size(bb,2);
             if isscalar(Lmax)
@@ -1206,12 +1214,12 @@ classdef SMI
             end
         end
         % =================================================================
-        function Lmax = GetDefaultLmax(b,beta,TE)
-            % Lmax = GetDefaultLmax(b,beta,TE)
+        function Lmax = GetDefaultLmax(b,beta,TE,MergeDistance)
+            % Lmax = GetDefaultLmax(b,beta,TE,MergeDistance)
             %
             % This function returns a 'good' Lmax based on the b-value of
             % the shell
-            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,[]);
+            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,MergeDistance);
             b=table_4D(1,:);
             beta=table_4D(2,:);
             Lmax=zeros(1,size(table_4D,2));

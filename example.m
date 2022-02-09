@@ -37,6 +37,8 @@ options.b    = bval;
 options.beta = beta;
 options.dirs = dirs;
 options.TE   = TE;
+options.MergeDistance = 0.1; % If []: default is 0.05 [ms/um^2], this 
+% is the threshold for considering different b-values as the same shell
 
 % Specify mask and noise map
 options.mask  = logical(nii_mask.img);
