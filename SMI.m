@@ -1222,6 +1222,7 @@ classdef SMI
             [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,MergeDistance);
             b=table_4D(1,:);
             beta=table_4D(2,:);
+            Ndirs=table_4D(3,:);
             Lmax=zeros(1,size(table_4D,2));
             if max(b)<100
                 b_micro_units=b;
@@ -1241,6 +1242,11 @@ classdef SMI
                     else
                         Lmax(ii)=8;
                     end
+                end
+                NfreeParam=Lmax(ii)*(Lmax(ii)+3)/2+1;
+                while NfreeParam>=Ndirs(ii)
+                    Lmax(ii)=Lmax(ii)-2;
+                    NfreeParam=Lmax(ii)*(Lmax(ii)+3)/2+1;
                 end
             end
         end
