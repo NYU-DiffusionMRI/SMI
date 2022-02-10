@@ -957,7 +957,7 @@ classdef SMI
             id_measurements=1:Nmeas;
             ids_current_cluster_all=[];
             for ii=1:Nshells
-                ids_current_cluster=id_measurements((abs(bb(1,ii)-bval)<1e-3)&(abs(bb(2,ii)-beta)<1e-2)&(abs(bb(4,ii)-TE)<1e-1));
+                ids_current_cluster=id_measurements((abs(bb(1,ii)-bval)<MergeDistance)&(abs(bb(2,ii)-beta)<MergeDistance)&(abs(bb(4,ii)-TE)<1e-1));
                 if abs(length(ids_current_cluster)-bb(3,ii))>0.1
                     error('count of elements in current cluster failed, check bb and B inputs')
                 end
