@@ -1235,7 +1235,7 @@ classdef SMI
                 else
                     if b_micro_units(ii)<1.2
                         Lmax(ii)=2;
-                    elseif b_micro_units(ii)<2.5
+                    elseif b_micro_units(ii)<=2.5
                         Lmax(ii)=4;
                     elseif b_micro_units(ii)<6.5
                         Lmax(ii)=6;
@@ -1244,7 +1244,7 @@ classdef SMI
                     end
                 end
                 NfreeParam=Lmax(ii)*(Lmax(ii)+3)/2+1;
-                while NfreeParam>=Ndirs(ii)
+                while NfreeParam>=(Ndirs(ii)/1.3)
                     Lmax(ii)=Lmax(ii)-2;
                     NfreeParam=Lmax(ii)*(Lmax(ii)+3)/2+1;
                 end
