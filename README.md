@@ -78,7 +78,11 @@ Recommended inputs:
 <br>
 
 ## Example usage[^note]
-We provide an example dataset [here](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing) that was preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). This contains multiple b-values, tensor shapes, and echo times. See the example file 'example.m' with the SMI fit of a subset of the data with only 1 TE, and with the full dataset. Note that data is provided in nifti format, we used [this nifti toolbox](https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) but feel free to use any and modify the lines where the data is loaded.
+We provide three example datasets [here](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing) that were preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). These contain
+- Multiple b-values
+- Multiple b-values and tensor shapes
+- Multiple b-values, tensor shapes, and echo times.
+See the example file 'example.m' with the SMI fit. Note that data is provided in nifti format, we used [this nifti toolbox](https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) but feel free to use any and modify the lines where the data is loaded.
 
 ```
 % =====================================================================
