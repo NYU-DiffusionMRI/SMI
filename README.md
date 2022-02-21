@@ -82,6 +82,7 @@ We provide three example datasets [here](https://drive.google.com/drive/folders/
 - Multiple b-values
 - Multiple b-values and tensor shapes
 - Multiple b-values, tensor shapes, and echo times.
+
 See the example file 'example.m' with the SMI fit. Note that data is provided in nifti format, we used [this nifti toolbox](https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) but feel free to use any and modify the lines where the data is loaded.
 
 ```
