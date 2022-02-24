@@ -40,7 +40,7 @@ Note that typical scanner units are b=1000 [seconds / (squared millimeters)] whi
 
 ### Data with non-LTE encodings and variable echo times (TE)
 Input data can also have:
-- Multiple **B**-tensor shapes (specified by β). This input must be a [1 x N] vector. Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape.
+- Multiple **B**-tensor shapes (specified by β). This input must be a [1 x N] vector. Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape (see figure below).
 - Multiple echo times (TE, assumed to be in [milliseconds]). This input must be a [1 x N] vector.
 
 In this general scenario, each measurement is thus fully specified by: a b-value (b), a unit direction (**u**) (axis of symmetry of **B**), a b-tensor shape (β), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
@@ -48,8 +48,8 @@ In this general scenario, each measurement is thus fully specified by: a b-value
   <img width="500" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
 </p>
 
-  - If no β is supplied (this input can be empty array) the code assumes β=1 (linear tensor encoding, LTE, measurements).
-  - If no TE is supplied (this input can be empty array), the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted.
+  - If no β is supplied (this input can be absent or an empty array) the code assumes β=1 (linear tensor encoding, LTE, measurements).
+  - If no TE is supplied (this input can be absent or an empty array), the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted and water fractions will be T2-weighted.
 
 <br>
 
