@@ -32,8 +32,7 @@ _Note that this model does not apply to gray matter, where exchange and the pres
 
 ### Minimal requrements for linear tensor encoding (LTE)
 - This implementation of the SM supports as input a 4D array [nx x ny x nz x N] of diffusion-weighted data, meaning a 3D spatial arrangement of voxels with N diffusion measurements arranged along 4th dimention.
-- A b-value (.bval) file is needed, this must be a [1 x N] vector.
-- A b-vectors (.bvec) file is needed, this must be a [3 x N] vector.
+- Protocol files (FSL format) are needed: a b-value (.bval) file, a [1 x N] vector, and a directions file (.bvec), a [3 x N] array.
 - A noise map, this must be a 3D array of size [nx x ny x nz]. This can be previously estimated using MPPCA, see [this Matlab implementation](https://github.com/NYU-DiffusionMRI/mppca_denoise). 
 
 _On the b-value units:_ We recommend microstructural units [milliseconds / (squared micrometers)].
