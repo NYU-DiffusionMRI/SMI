@@ -1,5 +1,5 @@
 # Standard Model Imaging (SMI) toolbox
-[This MATLAB toolbox](https://github.com/NYU-DiffusionMRI/SMI/blob/master/SMI.m) contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/pdf/2202.02399.pdf) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox. See the '[example.m](https://github.com/NYU-DiffusionMRI/SMI/blob/master/example.m)' script that performs the parameter estimation in an [example dataset](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing).
+[This MATLAB toolbox](https://github.com/NYU-DiffusionMRI/SMI/blob/master/SMI.m) contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/pdf/2202.02399.pdf) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox. See the '[example.m](https://github.com/NYU-DiffusionMRI/SMI/blob/master/example.m)' script that performs the parameter estimation in an [example dataset](https://cai2r.net/resources/standard-model-of-diffusion-in-white-matter-the-smi-toolbox/).
 
 <br>
 
@@ -77,7 +77,7 @@ Recommended inputs:
 <br>
 
 ## Example usage[^note]
-We provide three example datasets [here](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing) that were preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). These contain
+We provide three example datasets [here](https://cai2r.net/resources/standard-model-of-diffusion-in-white-matter-the-smi-toolbox/) that were preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). These contain
 - Multiple b-values
 - Multiple b-values and tensor shapes
 - Multiple b-values, tensor shapes, and echo times.
