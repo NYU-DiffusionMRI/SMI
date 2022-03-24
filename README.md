@@ -1,5 +1,5 @@
 # Standard Model Imaging (SMI) toolbox
-[This MATLAB toolbox](https://github.com/NYU-DiffusionMRI/SMI/blob/master/SMI.m) contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/pdf/2202.02399.pdf) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox. See the '[example.m](https://github.com/NYU-DiffusionMRI/SMI/blob/master/example.m)' script that performs the parameter estimation in an [example dataset](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing).
+[This MATLAB toolbox](https://github.com/NYU-DiffusionMRI/SMI/blob/master/SMI.m) contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/pdf/2202.02399.pdf) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox. See the '[example.m](https://github.com/NYU-DiffusionMRI/SMI/blob/master/example.m)' script that performs the parameter estimation in an [example dataset](https://cai2r.net/resources/standard-model-of-diffusion-in-white-matter-the-smi-toolbox/).
 
 <br>
 
@@ -32,8 +32,7 @@ _Note that this model does not apply to gray matter, where exchange and the pres
 
 ### Minimal requrements for linear tensor encoding (LTE)
 - This implementation of the SM supports as input a 4D array [nx x ny x nz x N] of diffusion-weighted data, meaning a 3D spatial arrangement of voxels with N diffusion measurements arranged along 4th dimention.
-- A b-value (.bval) file is needed, this must be a [1 x N] vector.
-- A b-vectors (.bvec) file is needed, this must be a [3 x N] vector.
+- Protocol files (FSL format) are needed: a b-value (.bval) file, a [1 x N] vector, and a directions file (.bvec), a [3 x N] array.
 - A noise map, this must be a 3D array of size [nx x ny x nz]. This can be previously estimated using MPPCA, see [this Matlab implementation](https://github.com/NYU-DiffusionMRI/mppca_denoise). 
 
 _On the b-value units:_ We recommend microstructural units [milliseconds / (squared micrometers)].
@@ -41,7 +40,7 @@ Note that typical scanner units are b=1000 [seconds / (squared millimeters)] whi
 
 ### Data with non-LTE encodings and variable echo times (TE)
 Input data can also have:
-- Multiple **B**-tensor shapes (specified by β). This input must be a [1 x N] vector. Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape.
+- Multiple **B**-tensor shapes (specified by β). This input must be a [1 x N] vector. Only axially symmetric b-tensors are supported. β is a unitless scalar between -0.5 and 1 that indicates the **B**-tensor shape (see figure below).
 - Multiple echo times (TE, assumed to be in [milliseconds]). This input must be a [1 x N] vector.
 
 In this general scenario, each measurement is thus fully specified by: a b-value (b), a unit direction (**u**) (axis of symmetry of **B**), a b-tensor shape (β), and TE. See the figure and equation below to understand how these parameters make a b-tensor **B**:
@@ -49,8 +48,8 @@ In this general scenario, each measurement is thus fully specified by: a b-value
   <img width="500" alt=" AxSymB_wEq" src="https://user-images.githubusercontent.com/54751227/152437987-d79193d1-1ecc-4707-bdc3-f7cd2dec6ad6.png">
 </p>
 
-  - If no β is supplied (this input can be empty array) the code assumes β=1 (linear tensor encoding, LTE, measurements).
-  - If no TE is supplied (this input can be empty array), the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted.
+  - If no β is supplied (this input can be absent or an empty array) the code assumes β=1 (linear tensor encoding, LTE, measurements).
+  - If no TE is supplied (this input can be absent or an empty array), the code assumes that the TE is the same across all measurements. In this case compartmental T2 values will not be outputted and water fractions will be T2-weighted.
 
 <br>
 
@@ -78,7 +77,7 @@ Recommended inputs:
 <br>
 
 ## Example usage[^note]
-We provide three example datasets [here](https://drive.google.com/drive/folders/1TQzZGM7PdTf1kplwfWLIIRn8q0kE3Nix?usp=sharing) that were preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). These contain
+We provide three example datasets [here](https://cai2r.net/resources/standard-model-of-diffusion-in-white-matter-the-smi-toolbox/) that were preprocessed with [DESIGNER](https://github.com/NYU-DiffusionMRI/DESIGNER). These contain
 - Multiple b-values
 - Multiple b-values and tensor shapes
 - Multiple b-values, tensor shapes, and echo times.
