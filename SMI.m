@@ -324,7 +324,7 @@ classdef SMI
             if flag_rectify_fODF
                 plm=SMI.vectorize(plm,mask);
                 [EPSILON,~,~] = SMI.Compute_eps_ODF_rectification(plm,CS_phase);
-                out.epsilon=EPSILON;
+                out.epsilon=SMI.vectorize(EPSILON,mask);
             end
         end
         % =================================================================
