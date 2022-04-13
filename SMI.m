@@ -1506,11 +1506,11 @@ classdef SMI
                     else
                         Lmax(ii)=8;
                     end
-                end
-                NfreeParam=Lmax(ii)*(Lmax(ii)+3)/2+1;
-                while NfreeParam>=(Ndirs(ii)/1.3)
-                    Lmax(ii)=Lmax(ii)-2;
                     NfreeParam=Lmax(ii)*(Lmax(ii)+3)/2+1;
+                    while NfreeParam>=(Ndirs(ii)/1.3)
+                        Lmax(ii)=Lmax(ii)-2;
+                        NfreeParam=Lmax(ii)*(Lmax(ii)+3)/2+1;
+                    end
                 end
             end
         end
