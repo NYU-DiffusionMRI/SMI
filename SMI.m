@@ -1179,6 +1179,11 @@ classdef SMI
 
             [bb,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,MergeDistance);
 
+
+            if isempty(Lmax)
+                Lmax = SMI.GetDefaultLmax(bval,beta,TE,MergeDistance);
+            end
+
             Nshells=size(bb,2);
             if isscalar(Lmax)
                 Lmax=Lmax*ones(1,Nshells);
@@ -1197,6 +1202,15 @@ classdef SMI
                 % make all b0s LTE
                 beta(bval<50)=1;
             end
+
+            if isempty(MergeDistance)
+                if flag_microstructure_units
+                    MergeDistance=0.1;
+                else
+                    MergeDistance=100;
+                end
+            end
+
 
             N_SH_coeffs=1+Lmax.*(Lmax+3)/2;
             if size(bvec,1)==Nmeas
@@ -1351,9 +1365,9 @@ classdef SMI
 
             if isempty(MergeDistance)
                 if flag_microstructure_units
-                    MergeDistance=0.05;
+                    MergeDistance=0.1;
                 else
-                    MergeDistance=50;
+                    MergeDistance=100;
                 end
             end
             Clusters=[bval;beta;TE]';
