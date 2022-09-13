@@ -19,11 +19,13 @@ classdef SMI
     %       fixed TE)
     %       with the kernel parameters in the following order:
     %       (f, Da, Deparallel, Deperpendicular, fw, p2)
+    %       if 2 compartments were fit (IAS + EAS) fw output is simply 0.
     %
     %       out.kernel has a [nx x ny x nz x 8] array (if input data had a
     %       multiple TE)
     %       with the kernel parameters in the following order:
     %       (f, Da, Deparallel, Deperpendicular, fw, T2a, T2e, p2)
+    %       if 2 compartments were fit (IAS + EAS) fw output is simply 0.
     %
     %       out.shells is a [4 x Nshells] array: [b;beta;#directions;TE]
     %       one column per shell.
@@ -209,7 +211,7 @@ classdef SMI
             % Grab compartments data from options (default is IAS + EAS + FW)
             flag_compartments=[0 0 0 0];
             if ~isfield(options,'compartments')
-                flag_compartments=[1 1 1 0];
+                flag_compartments=[1 1 0 0]; % Default is 2 compartments
             else
                 id_IAS = find(strcmp(options.compartments, 'IAS'));
                 id_EAS = find(strcmp(options.compartments, 'EAS'));
@@ -236,6 +238,8 @@ classdef SMI
                     % Add fake T2s (will be ignored since TE is fixed and T2 will not be estimated)
                     prior=[prior(:,1:5), 100*ones(size(prior,1),2), prior(:,6)];
                 end
+            elseif isfield(options.MLTraining,'prior')
+                prior=options.MLTraining.prior;
             else
                 if ~isfield(options.MLTraining,'Ntraining')
                     Ntraining = 4e4;

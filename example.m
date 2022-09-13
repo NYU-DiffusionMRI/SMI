@@ -41,7 +41,7 @@ options.sigma = abs(sigma_nii.img);
 
 
 % Specify options for the fit
-options.compartments = {'IAS','EAS','FW'}; % The order does not matter
+options.compartments = {'IAS','EAS'}; % The order does not matter
 options.NoiseBias    = 'Rician'; % this data has Rician noise bias
 options.MLTraining.bounds = [0.05, 1, 1, 0.1, 0, 50, 50, 0.05; 0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
 
@@ -55,10 +55,10 @@ fprintf('Time SM fit %f s\n',t)
 nii_fa = load_untouch_nii(fullfile(pathFiles,'fa.nii'));
 WM_mask=single(nii_fa.img>0.2);
 WM_mask(WM_mask(:)==0)=NaN;
-paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{2}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{2}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$f_\mathrm{w}$','$p_2$'};
-clims=[0 1;0 3;0 3;0 1.5;0 1;0 1]; slice=40; Nrows=2;
+paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$p_2$'};
+clims=[0 1;0 3;0 3;0 1.5;0 1]; slice=40; Nrows=2;
 % Plot results
-figure('Position',[506 225 1347 905]), SMI.plotSlices(out.kernel.*WM_mask, slice,clims,paramNames,Nrows,[],1,1)
+figure('Position',[506 225 1347 905]), SMI.plotSlices(out.kernel(:,:,:,[1 2 3 4 6]).*WM_mask, slice,clims,paramNames,Nrows,[],1,1)
 
 %% EXAMPLE 2
 clc,clear,close all
@@ -106,7 +106,7 @@ fprintf('Time SM fit %f s\n',t)
 nii_fa = load_untouch_nii(fullfile(pathFiles,'fa.nii'));
 WM_mask=single(nii_fa.img>0.2);
 WM_mask(WM_mask(:)==0)=NaN;
-paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{2}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{2}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$f_\mathrm{w}$','$p_2$'};
+paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$f_\mathrm{w}$','$p_2$'};
 clims=[0 1;0 3;0 3;0 1.5;0 1;0 1]; slice=40; Nrows=2;
 % Plot results
 figure('Position',[506 225 1347 905]), SMI.plotSlices(out.kernel.*WM_mask, slice,clims,paramNames,Nrows,[],1,1)
@@ -155,8 +155,8 @@ fprintf('Time SM fit %f s\n',t)
 nii_fa = load_untouch_nii(fullfile(pathFiles,'fa.nii'));
 WM_mask=single(nii_fa.img>0.2);
 WM_mask(WM_mask(:)==0)=NaN;
-paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{2}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$',...
-            '$D_\mathrm{2}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$f_\mathrm{w}$','$T_2^\mathrm{a}$ [ms]','$T_2^\mathrm{e}$ [ms]','$p_2$'};
+paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$',...
+            '$D_\mathrm{e}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$f_\mathrm{w}$','$T_2^\mathrm{a}$ [ms]','$T_2^\mathrm{e}$ [ms]','$p_2$'};
 clims=[0 1;0 3;0 3;0 1.5;0 1;0 150;0 150;0 1]; slice=40; Nrows=2;
 % Plot results
 figure('Position',[269 281 1785 821]), SMI.plotSlices(out.kernel.*WM_mask, slice,clims,paramNames,Nrows,[],1,1)
