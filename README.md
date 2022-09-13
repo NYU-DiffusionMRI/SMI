@@ -143,7 +143,7 @@ For typical SNR values found in clinical dMRI experiments, the optimal regressio
 ## Some advanced usage options
 The code provides some additional flexibility:
 - Rician bias correction: to de-bias the DWI before the spherical harmonics fit.
-- Variable number of compartments: 'IAS', 'EAS', 'FW'. _This will be extended but at the moment the only two options are {'IAS', 'EAS'} or {'IAS', 'EAS', 'FW'}._
+- Variable number of compartments: 'IAS', 'EAS', 'FW'. _This will be extended but at the moment the only two options are {'IAS', 'EAS'} (default) or {'IAS', 'EAS', 'FW'}._
 - User defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - **(NOT READY YET)** Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
