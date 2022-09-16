@@ -57,7 +57,7 @@ In this general scenario, each measurement is thus fully specified by: a b-value
 ## SMI outputs
 Standard Model parameters (diffusion) + compartmental T2 values (only if multiple TE data was provided). See figure below for some examples:
 <img width="1690" alt="SM_maps_github" src="https://user-images.githubusercontent.com/54751227/152456997-5f24f886-03f9-4eb2-a5f8-1dd767134eae.png">
-- Fractions (f, fw) and anisotropy (p2) are adimensional.
+- Fractions (f, fw) and anisotropy (p2,p4) are adimensional.
 - Diffusivities are returned in microstructural units [squared micrometers / milliseconds] (independently of input units).
 - Compartmental T2 values are returned in [milliseconds].
 - Note that compartmental T2 maps will only be outputed if variable TE data was used.
@@ -134,7 +134,7 @@ options.NoiseBias    = 'Rician'; % use 'None' for zero-mean noise
 ## Parameter estimation
 First, the rotational invariants of the diffusion signal are estimated. This is done using a least squares estimator. If data has a non-negligible rician bias, we suggest to correct it during the fitting (see advanced options below).
 
-Then, the SM parameters are estimated from the rotational invariants of the signal. Unlike conventional parameter estimation approaches which rely on an analytical forward model, e.g. maximum likelihood, here we use data-driven machine learning (ML) regression. This is done by applying a sufficiently flexible nonlinear regression to _training data_ generated with the forward model of interest, considering a wide distribution of model parameters, the noise level, and the protocol that was used. Then, such regression is applied to the data of interest.
+Then, the SM parameters are estimated from the rotational invariants of the signal (up to L=4 as default option). Unlike conventional parameter estimation approaches which rely on an analytical forward model, e.g. maximum likelihood, here we use data-driven machine learning (ML) regression. This is done by applying a sufficiently flexible nonlinear regression to _training data_ generated with the forward model of interest, considering a wide distribution of model parameters, the noise level, and the protocol that was used. Then, such regression is applied to the data of interest.
 
 For typical SNR values found in clinical dMRI experiments, the optimal regression, i.e. minimizing MSE of the training data, can be achieved already by a cubic polynomial, as it  captures all relevant degrees of freedom in the data represented by the set of rotational invariants.
 
