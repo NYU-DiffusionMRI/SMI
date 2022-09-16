@@ -192,6 +192,11 @@ classdef SMI
             else
                 TE = options.TE;
             end
+            if isempty(TE)||length(unique(TE))==1
+                fit_T2=0;
+            else
+                fit_T2=1;
+            end
             if ~isfield(options,'CS_phase') 
                 CS_phase = 1;
             else
@@ -231,22 +236,43 @@ classdef SMI
                     error('Current version does not support a DOT compartment (update should be ready soon)')
                 end
             end
-            
-            if isnan(options.MLTraining.bounds)
-                prior = options.MLTraining.TrainingData;
-                if size(prior,2)==6
+                        
+            if ~isfield(options,'Nlevels')
+                Nlevels = 10;
+            else
+                Nlevels = options.Nlevels;
+            end
+
+            if ~isfield(options,'Lmax')
+                Lmax = SMI.GetDefaultLmax(b,beta,TE,MergeDistance);
+            else
+                Lmax = options.Lmax;
+            end
+
+            if ~isfield(options,'RotInv_Lmax')&&(max(Lmax)>=4)
+                RotInv_Lmax = 4;
+            elseif ~isfield(options,'RotInv_Lmax')
+                RotInv_Lmax = 2;
+            else
+                RotInv_Lmax = options.RotInv_Lmax;
+            end
+
+            % Generate or read priors
+            if any(any(isnan(options.MLTraining.bounds)))&isfield(options.MLTraining,'prior')
+                prior = options.MLTraining.prior;
+                if ~fit_T2
                     % Add fake T2s (will be ignored since TE is fixed and T2 will not be estimated)
-                    prior=[prior(:,1:5), 100*ones(size(prior,1),2), prior(:,6)];
+                    prior=[prior(:,1:5), 100*ones(size(prior,1),2), prior(:,6:end)];
                 end
-            elseif isfield(options.MLTraining,'prior')
-                prior=options.MLTraining.prior;
+%             elseif isfield(options.MLTraining,'prior')
+%                 prior=options.MLTraining.prior;
             else
                 if ~isfield(options.MLTraining,'Ntraining')
                     Ntraining = 4e4;
                 else
                     Ntraining = options.MLTraining.Ntraining;
                 end
-                Lmax_training=2;
+                Lmax_training=6;
                 if ~isfield(options,'MLTraining')
                     lb_training = [0.05, 1, 1, 0.1,   0,  50,  50, 0.05];
                     ub_training = [0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
@@ -254,22 +280,24 @@ classdef SMI
                     lb_training = options.MLTraining.bounds(1,:);
                     ub_training = options.MLTraining.bounds(2,:);
                 end
-                [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,~] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_training);
-                prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
+                [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,plm_train] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_training);
+                if RotInv_Lmax==2
+                    prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
+                elseif RotInv_Lmax==4
+                    p4=sqrt(sum(plm_train(:,6:14).^2,2));
+                    prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4];
+                elseif RotInv_Lmax==6
+                    p4=sqrt(sum(plm_train(:,6:14).^2,2));
+                    p6=sqrt(sum(plm_train(:,15:27).^2,2));
+                    prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4,p6];
+                end
             end
-            
-            if ~isfield(options,'Nlevels')
-                Nlevels = 10;
-            else
-                Nlevels = options.Nlevels;
+
+            if (RotInv_Lmax==2&&size(prior,2)<8)||(RotInv_Lmax==4&&size(prior,2)<9)||(RotInv_Lmax==6&&size(prior,2)<10)
+                error('Inconsistency between desired Lmax for ML fitting and prior distribution')
             end
-            
-            if ~isfield(options,'Lmax')
-                Lmax = SMI.GetDefaultLmax(b,beta,TE,MergeDistance);
-            else
-                Lmax = options.Lmax;
-            end
-                
+
+
             if ~isfield(options,'mask')
                 sz = size(dwi);
                 mask = true(sz(1:3));
@@ -307,13 +335,26 @@ classdef SMI
             [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b,dirs,beta,TE,Lmax,MergeDistance);
 
             % Concatenate rotational invariants
-            RotInvs=cat(4,squeeze(Sl(:,:,:,1,:)),squeeze(Sl(:,:,:,2,:)));
             out.RotInvs.S0=squeeze(Sl(:,:,:,1,:));
-            out.RotInvs.S2=squeeze(Sl(:,:,:,2,:));         
+            if RotInv_Lmax==0
+                RotInvs=squeeze(Sl(:,:,:,1,:));
+            elseif RotInv_Lmax==2
+                RotInvs=cat(4,squeeze(Sl(:,:,:,1,:)),squeeze(Sl(:,:,:,2,:)));
+                out.RotInvs.S2=squeeze(Sl(:,:,:,2,:));         
+            elseif RotInv_Lmax==4
+                RotInvs=cat(4,squeeze(Sl(:,:,:,1,:)),squeeze(Sl(:,:,:,2,:)),squeeze(Sl(:,:,:,3,:)));
+                out.RotInvs.S2=squeeze(Sl(:,:,:,2,:));         
+                out.RotInvs.S4=squeeze(Sl(:,:,:,3,:));         
+            elseif RotInv_Lmax==6
+                RotInvs=cat(4,squeeze(Sl(:,:,:,1,:)),squeeze(Sl(:,:,:,2,:)),squeeze(Sl(:,:,:,3,:)),squeeze(Sl(:,:,:,4,:)));
+                out.RotInvs.S2=squeeze(Sl(:,:,:,2,:));         
+                out.RotInvs.S4=squeeze(Sl(:,:,:,3,:));         
+                out.RotInvs.S6=squeeze(Sl(:,:,:,4,:));         
+            end
             out.shells=table_4D_sorted;
             
             % Run polynomial regression training and fitting
-            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance);
+            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax);
             out.kernel = KERNEL;
             
             if flag_fit_fODF
@@ -584,10 +625,10 @@ classdef SMI
             end
         end
         % =================================================================
-        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance)
-            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance)
+        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax)
+            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax)
             %
-            % Output: KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit];
+            % Output: KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit p4_ML_fit p6_ML_fit];
 
             sz_RotInvs=size(RotInvs);
             if length(sz_RotInvs)==4
@@ -641,8 +682,19 @@ classdef SMI
             Ndirs=table_4D(3,:);
 
             keep_non_zero_S0=true(1,size(table_4D,2));
-            keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
-            keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2];
+            if RotInv_Lmax==2
+                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2];
+            elseif RotInv_Lmax==4
+                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_non_zero_S4=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=4);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2 keep_non_zero_S4];
+            elseif RotInv_Lmax==6
+                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_non_zero_S4=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=4);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_non_zero_S6=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=6);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2 keep_non_zero_S4 keep_non_zero_S6];
+            end
 
             sigma_noise_norm_levels_edges=linspace(sigma_norm_limits(1),sigma_norm_limits(2),Nlevels+1);
             sigma_noise_norm_levels_ids = discretize(SigmaNormalized,sigma_noise_norm_levels_edges);
@@ -653,6 +705,15 @@ classdef SMI
             Degree_Kernel=3;
             X_fit_norm = SMI.Compute_extended_moments(RotInvsNormalized(:,keep_RotInvs_kernel),Degree_Kernel);
 
+            NvoxelsMasked=size(RotInvsNormalized,1);
+            f_ML_fit=zeros(NvoxelsMasked,1);
+            Da_ML_fit=zeros(NvoxelsMasked,1);
+            Depar_ML_fit=zeros(NvoxelsMasked,1);
+            Deperp_ML_fit=zeros(NvoxelsMasked,1);
+            f_FW_ML_fit=zeros(NvoxelsMasked,1);
+            T2a_ML_fit=zeros(NvoxelsMasked,1);
+            T2e_ML_fit=zeros(NvoxelsMasked,1);
+            
             f=prior(:,1);
             Da=prior(:,2);
             Depar=prior(:,3);
@@ -660,7 +721,7 @@ classdef SMI
             f_FW=prior(:,5);
             T2a=prior(:,6);
             T2e=prior(:,7);
-            p2=prior(:,8);
+
             
             Ntraining=length(f);
             if ~flag_compartments(1)
@@ -673,18 +734,33 @@ classdef SMI
                 f=1-f_FW;
             end            
                         
-            RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2],MergeDistance);
+            if RotInv_Lmax==2
+                p2=prior(:,8);
+                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2],MergeDistance);
+                p2_ML_fit=zeros(NvoxelsMasked,1);  
+                sigma_Ndirs_factor=sqrt([Ndirs Ndirs*5]);
+            end
+            if RotInv_Lmax==4
+                p2=prior(:,8);
+                p4=prior(:,9);
+                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4],MergeDistance);
+                p2_ML_fit=zeros(NvoxelsMasked,1);            
+                p4_ML_fit=zeros(NvoxelsMasked,1);            
+                sigma_Ndirs_factor=sqrt([Ndirs Ndirs*5 Ndirs*9]);
+            end
+            if RotInv_Lmax==6
+                p2=prior(:,8);
+                p4=prior(:,9);
+                p6=prior(:,10);
+                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4,p6],MergeDistance);
+                p2_ML_fit=zeros(NvoxelsMasked,1);            
+                p4_ML_fit=zeros(NvoxelsMasked,1);       
+                p6_ML_fit=zeros(NvoxelsMasked,1);      
+                sigma_Ndirs_factor=sqrt([Ndirs Ndirs*5 Ndirs*9 Ndirs*13]);
+            end
             RotInvs_train_norm=RotInvs_train./RotInvs_train(:,1);
 
-            NvoxelsMasked=size(RotInvsNormalized,1);
-            f_ML_fit=zeros(NvoxelsMasked,1);
-            Da_ML_fit=zeros(NvoxelsMasked,1);
-            Depar_ML_fit=zeros(NvoxelsMasked,1);
-            Deperp_ML_fit=zeros(NvoxelsMasked,1);
-            f_FW_ML_fit=zeros(NvoxelsMasked,1);
-            T2a_ML_fit=zeros(NvoxelsMasked,1);
-            T2e_ML_fit=zeros(NvoxelsMasked,1);
-            p2_ML_fit=zeros(NvoxelsMasked,1);
+
             for ii=1:Nlevels
                 flag_current_noise_level=sigma_noise_norm_levels_ids==ii;
                 if ~any(flag_current_noise_level)
@@ -693,7 +769,7 @@ classdef SMI
                 end
                 % Add noise to training data
                 % constant sigma for noise level range
-                sigma_RotInvs_training=sigma_noise_norm_levels_mean(ii)./sqrt([Ndirs Ndirs*5]);
+                sigma_RotInvs_training=sigma_noise_norm_levels_mean(ii)./sigma_Ndirs_factor;
                 meas_RotInvs_train=RotInvs_train_norm+sigma_RotInvs_training.*randn(size(RotInvs_train_norm));
                 % =========================================================================
                 % Performing PR on RotInvs to estimate the kernel
@@ -706,7 +782,7 @@ classdef SMI
                 coeffs_f_FW=Pinv_X*f_FW;
                 coeffs_T2a=Pinv_X*T2a;
                 coeffs_T2e=Pinv_X*T2e;
-                coeffs_p2=Pinv_X*p2;
+                
                 f_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_f;
                 Da_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_Da;
                 Depar_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_Depar;
@@ -714,7 +790,20 @@ classdef SMI
                 f_FW_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_f_FW;
                 T2a_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_T2a;
                 T2e_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_T2e;
-                p2_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_p2;
+                
+                if RotInv_Lmax>=2
+                    coeffs_p2=Pinv_X*p2;
+                    p2_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_p2;
+                end
+                if RotInv_Lmax>=4
+                    coeffs_p4=Pinv_X*p4;
+                    p4_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_p4;
+                end
+                if RotInv_Lmax>=6
+                    coeffs_p6=Pinv_X*p6;
+                    p6_ML_fit(flag_current_noise_level)=X_fit_norm(flag_current_noise_level,:)*coeffs_p6;
+                end
+
                 % fprintf('Done PR training on noise level %d/%d\n',ii,Nlevels)
             end
             f_ML_fit(f_ML_fit<0)=0;f_ML_fit(f_ML_fit>1)=1;
@@ -724,11 +813,25 @@ classdef SMI
             f_FW_ML_fit(f_FW_ML_fit<0)=0;f_FW_ML_fit(f_FW_ML_fit>1)=1;
             T2a_ML_fit(T2a_ML_fit<30)=30;T2a_ML_fit(T2a_ML_fit>150)=150;
             T2e_ML_fit(T2e_ML_fit<30)=30;T2e_ML_fit(T2e_ML_fit>150)=150;
-            p2_ML_fit(p2_ML_fit<0)=0;p2_ML_fit(p2_ML_fit>1)=1;
+            if RotInv_Lmax==2
+                p2_ML_fit(p2_ML_fit<0)=0;p2_ML_fit(p2_ML_fit>1)=1;
+                p4_ML_fit=[];
+                p6_ML_fit=[];
+            end
+            if RotInv_Lmax==4
+                p2_ML_fit(p2_ML_fit<0)=0;p2_ML_fit(p2_ML_fit>1)=1;
+                p4_ML_fit(p4_ML_fit<0)=0;p4_ML_fit(p4_ML_fit>1)=1; 
+                p6_ML_fit=[];
+            end
+            if RotInv_Lmax==6
+                p2_ML_fit(p2_ML_fit<0)=0;p2_ML_fit(p2_ML_fit>1)=1;
+                p4_ML_fit(p4_ML_fit<0)=0;p4_ML_fit(p4_ML_fit>1)=1; 
+                p6_ML_fit(p6_ML_fit<0)=0;p6_ML_fit(p6_ML_fit>1)=1;
+            end
             if do_not_fit_T2
-                KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit p2_ML_fit]';
+                KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit p2_ML_fit p4_ML_fit p6_ML_fit]';
             else
-                KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit]';
+                KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit p4_ML_fit p6_ML_fit]';
             end
             if flag_4D
                 KERNEL=SMI.vectorize(KERNEL,mask);
@@ -738,7 +841,7 @@ classdef SMI
         function RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params,MergeDistance)
             % RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params,MergeDistance)
             %
-            % kernel_params = [s0 f Da Depar Deperp f_FW T2a T2e p2]
+            % kernel_params = [s0 f Da Depar Deperp f_FW T2a T2e p2 p4 p6]
             %
             % By: Santiago Coelho
             s0=kernel_params(:,1);
@@ -750,22 +853,29 @@ classdef SMI
             f_extra=1-f-f_FW;
             T2a=kernel_params(:,7);
             T2e=kernel_params(:,8);
-            p2=kernel_params(:,9);
-            x=[f, Da, Depar-Deperp, Deperp, f_extra, T2a, T2e];
-            
             [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,MergeDistance);                
-            NShells=size(table_4D,2);
+            % NShells=size(table_4D,2);
             
             K0_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(0,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
-            K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
-            % K0_all=zeros(length(f),NShells);
-            % K2_all=zeros(length(f),NShells);
-            % for ii=1:length(f)
-            %     K0_all(ii,:) = SMI.RotInv_K0_wFW_b_beta_TE_numerical(table_4D(1,:),table_4D(2,:),table_4D(4,:),x(ii,:));
-            %     K2_all(ii,:) = SMI.RotInv_K2_wFW_b_beta_TE_numerical(table_4D(1,:),table_4D(2,:),table_4D(4,:),x(ii,:));
-            % end
-
-            RotInvs=s0.*[K0_all p2.*abs(K2_all)];
+            if size(kernel_params,2)==9
+                p2=kernel_params(:,9);
+                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                RotInvs=s0.*[K0_all p2.*abs(K2_all)];
+            elseif size(kernel_params,2)==10
+                p2=kernel_params(:,9);
+                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                p4=kernel_params(:,10);
+                K4_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                RotInvs=s0.*[K0_all p2.*abs(K2_all) p4.*abs(K4_all)];
+            elseif size(kernel_params,2)==11
+                p2=kernel_params(:,9);
+                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                p4=kernel_params(:,10);
+                K4_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                p6=kernel_params(:,11);
+                K6_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(6,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                RotInvs=s0.*[K0_all p2.*abs(K2_all) p4.*abs(K4_all) p6.*abs(K6_all)];
+            end
         end
         % =================================================================
         function [Kell] = RotInv_Kell_wFW_b_beta_TE_numerical(ell,b,beta,TE,kernel)

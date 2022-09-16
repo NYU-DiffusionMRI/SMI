@@ -55,10 +55,10 @@ fprintf('Time SM fit %f s\n',t)
 nii_fa = load_untouch_nii(fullfile(pathFiles,'fa.nii'));
 WM_mask=single(nii_fa.img>0.2);
 WM_mask(WM_mask(:)==0)=NaN;
-paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$p_2$'};
-clims=[0 1;0 3;0 3;0 1.5;0 1]; slice=40; Nrows=2;
+paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$p_2$','$p_4$'};
+clims=[0 1;0 3;0 3;0 1.5;0 1;0 1]; slice=40; Nrows=2;
 % Plot results
-figure('Position',[506 225 1347 905]), SMI.plotSlices(out.kernel(:,:,:,[1 2 3 4 6]).*WM_mask, slice,clims,paramNames,Nrows,[],1,1)
+figure('Position',[506 225 1347 905]), SMI.plotSlices(out.kernel(:,:,:,[1 2 3 4 6 7]).*WM_mask, slice,clims,paramNames,Nrows,[],1,1)
 
 %% EXAMPLE 2
 clc,clear,close all
@@ -106,8 +106,8 @@ fprintf('Time SM fit %f s\n',t)
 nii_fa = load_untouch_nii(fullfile(pathFiles,'fa.nii'));
 WM_mask=single(nii_fa.img>0.2);
 WM_mask(WM_mask(:)==0)=NaN;
-paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$f_\mathrm{w}$','$p_2$'};
-clims=[0 1;0 3;0 3;0 1.5;0 1;0 1]; slice=40; Nrows=2;
+paramNames={'$f$','$D_\mathrm{a}\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\|\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$D_\mathrm{e}^\perp\,[\mathrm{\mu m}^2/\mathrm{ms}]$','$f_\mathrm{w}$','$p_2$','$p_4$'};
+clims=[0 1;0 3;0 3;0 1.5;0 1;0 1;0 1]; slice=40; Nrows=2;
 % Plot results
 figure('Position',[506 225 1347 905]), SMI.plotSlices(out.kernel.*WM_mask, slice,clims,paramNames,Nrows,[],1,1)
 
@@ -144,6 +144,7 @@ options.sigma = abs(sigma_nii.img);
 options.compartments = {'IAS','EAS','FW'}; % The order does not matter
 options.NoiseBias    = 'None'; % the example data has ~ zero-mean noise
 options.MLTraining.bounds = [0.05   1      1      0.1      0       50    50    0.05;0.95   3      3      1.2      1    150   120    0.99];
+options.RotInv_Lmax=2;
 
 % Run SM fitting
 tic
