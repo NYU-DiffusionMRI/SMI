@@ -1365,7 +1365,7 @@ classdef SMI
                 else
                     S_lm_current_cluster=zeros(N_SH_coeffs(ii),Nvoxels);
                     S_l_current_cluster=zeros(Lmax(ii)/2+1,Nvoxels);
-                    S_lm_current_cluster(1,:)=sqrt(4*pi)*mean(dwi_2D(ids_current_cluster,:));
+                    S_lm_current_cluster(1,:)=sqrt(4*pi)*mean(dwi_2D(ids_current_cluster,:),1);
                     S_l_current_cluster(1,:)=abs(S_lm_current_cluster(1,:));
                 end
                 S_lm_clusters_all(1:N_SH_coeffs(ii),:,ii)=S_lm_current_cluster./repmat(N_l_all(1:N_SH_coeffs(ii))',1,Nvoxels);
