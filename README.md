@@ -124,6 +124,9 @@ options.sigma = sigma;
 % Specify options for the fit
 options.compartments = {'IAS','EAS','FW'}; % The order does not matter
 options.NoiseBias    = 'Rician'; % use 'None' for zero-mean noise
+options.MLTraining.bounds = [0.05, 1, 1, 0.1, 0, 50, 50, 0.05; 0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
+% The order is: [f, Da, Depar, Deperp, fw, T2a, T2e, p2] (If data has
+% fixed TE then the T2a and T2e priors are simply ignored)
 
 % Run SM fitting (dwi is a 4D array)
 [out] = SMI.fit(dwi,options);
