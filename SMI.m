@@ -101,6 +101,10 @@ classdef SMI
     % % % Bounds for training data sampled from a uniform distribution       
     % options.MLTraining.Ntraining is the number of training samples (default is 40000)
     % lb_training = options.MLTraining.bounds % [2 x 8] array of lower and upper bounds
+    % 
+    % The order is: [f, Da, Depar, Deperp, fw, T2a, T2e, p2] (If data has
+    % fixed TE then the T2a and T2e priors are simply ignored)
+    %
     % default is options.MLTraining.bounds = [0.05, 1, 1, 0.1, 0, 50, 50, 0.05; 0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
     %
     % If options.MLTraining does not exist then the training data is generated with the default options
@@ -122,6 +126,12 @@ classdef SMI
     % % % Noise level
     % options.sigma contains a 3D array with the noise level, this can be
     % computed using MPPCA (see github documentation for more details)
+    %
+    % Free water compartment
+    % options.D_FW this diffusivity is by default fixed at 3
+    % micrometer^2/ms which is the water diffusivity at body temperature.
+    % If working with ex vivo samples at lower temperature it can be set to
+    % a different value
     %
     % =====================================================================
     %
@@ -202,6 +212,11 @@ classdef SMI
             else
                 CS_phase = options.CS_phase;
             end
+            if ~isfield(options,'D_FW') 
+                D_FW = 3;
+            else
+                D_FW = options.D_FW;
+            end
             if ~isfield(options,'flag_fit_fODF') 
                 flag_fit_fODF = 0;
             else
@@ -258,7 +273,7 @@ classdef SMI
             end
 
             % Generate or read priors
-            if any(any(isnan(options.MLTraining.bounds)))&isfield(options.MLTraining,'prior')
+            if any(any(isnan(options.MLTraining.bounds)))&&isfield(options.MLTraining,'prior')
                 prior = options.MLTraining.prior;
                 if ~fit_T2
                     % Add fake T2s (will be ignored since TE is fixed and T2 will not be estimated)
@@ -354,13 +369,13 @@ classdef SMI
             out.shells=table_4D_sorted;
             
             % Run polynomial regression training and fitting
-            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax);
+            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW);
             out.kernel = KERNEL;
             
             if flag_fit_fODF
-                % [plm,pl] = SMI.get_plm_from_Slm_and_kernel(Slm,Lmax,KERNEL,mask,table_4D_sorted);
+                % [plm,pl] = SMI.get_plm_from_Slm_and_kernel(Slm,Lmax,KERNEL,mask,table_4D_sorted,D_FW);
                 s0=Sl(:,:,:,1,1);
-                [plm,pl] = SMI.get_plm_from_S_and_kernel(dwi./s0,Lmax,KERNEL,mask,b,beta,TE,dirs,CS_phase);
+                [plm,pl] = SMI.get_plm_from_S_and_kernel(dwi./s0,Lmax,KERNEL,mask,b,beta,TE,dirs,CS_phase,D_FW);
                 out.plm = plm;
                 out.pl = pl;
                 out.CS_phase=CS_phase;
@@ -373,8 +388,8 @@ classdef SMI
             end
         end
         % =================================================================
-        function [plm,pl] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase)
-            % [plm,pl] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase) 
+        function [plm,pl] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW)
+            % [plm,pl] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW) 
             %
             % This function does not assume shells for plm estimation,
             % joint plm estimation from DWI+kernel
@@ -422,18 +437,18 @@ classdef SMI
 
                 x=[f; Da; Depar; Deperp; fw; T2a; T2e]';
                 Kell=zeros(Nvoxels,Ndwi,LMAX/2+1);
-                Kell(:,:,1) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(0,b,beta,TE,x);
+                Kell(:,:,1) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(0,b,beta,TE,x,D_FW);
                 if LMAX>=2
-                    Kell(:,:,2) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,b,beta,TE,x);
+                    Kell(:,:,2) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,b,beta,TE,x,D_FW);
                 end
                 if LMAX>=4
-                    Kell(:,:,3) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,b,beta,TE,x);
+                    Kell(:,:,3) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,b,beta,TE,x,D_FW);
                 end
                 if LMAX>=6
-                    Kell(:,:,4) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(6,b,beta,TE,x);
+                    Kell(:,:,4) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(6,b,beta,TE,x,D_FW);
                 end
                 if LMAX>=8
-                    Kell(:,:,5) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(8,b,beta,TE,x);
+                    Kell(:,:,5) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(8,b,beta,TE,x,D_FW);
                 end
                 Kell=permute(Kell,[3 2 1]);
 
@@ -459,8 +474,8 @@ classdef SMI
             end
         end
         % =================================================================
-        function [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells)
-            % [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells)
+        function [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
+            % [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
 
             % x=rand(1000,7);
             % b=[0 1 2 5 6];
@@ -507,15 +522,15 @@ classdef SMI
                 x=[f; Da; Depar; Deperp; fw; T2a; T2e]';
                 
                 Kell=zeros(Nvoxels,Nshells,4);
-                Kell(:,:,1) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,b,beta,TE,x);
+                Kell(:,:,1) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,b,beta,TE,x,D_FW);
                 if LMAX>=4
-                    Kell(:,:,2) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,b,beta,TE,x);
+                    Kell(:,:,2) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,b,beta,TE,x,D_FW);
                 end
                 if LMAX>=6
-                    Kell(:,:,3) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(6,b,beta,TE,x);
+                    Kell(:,:,3) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(6,b,beta,TE,x,D_FW);
                 end
                 if LMAX>=8
-                    Kell(:,:,4) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(8,b,beta,TE,x);
+                    Kell(:,:,4) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(8,b,beta,TE,x,D_FW);
                 end
                 Kell=permute(Kell,[2 1 3]);
 
@@ -625,8 +640,8 @@ classdef SMI
             end
         end
         % =================================================================
-        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax)
-            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax)
+        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW)
+            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW)
             %
             % Output: KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit p4_ML_fit p6_ML_fit];
 
@@ -736,14 +751,14 @@ classdef SMI
                         
             if RotInv_Lmax==2
                 p2=prior(:,8);
-                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2],MergeDistance);
+                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2],MergeDistance,D_FW);
                 p2_ML_fit=zeros(NvoxelsMasked,1);  
                 sigma_Ndirs_factor=sqrt([Ndirs Ndirs*5]);
             end
             if RotInv_Lmax==4
                 p2=prior(:,8);
                 p4=prior(:,9);
-                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4],MergeDistance);
+                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4],MergeDistance,D_FW);
                 p2_ML_fit=zeros(NvoxelsMasked,1);            
                 p4_ML_fit=zeros(NvoxelsMasked,1);            
                 sigma_Ndirs_factor=sqrt([Ndirs Ndirs*5 Ndirs*9]);
@@ -752,7 +767,7 @@ classdef SMI
                 p2=prior(:,8);
                 p4=prior(:,9);
                 p6=prior(:,10);
-                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4,p6],MergeDistance);
+                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4,p6],MergeDistance,D_FW);
                 p2_ML_fit=zeros(NvoxelsMasked,1);            
                 p4_ML_fit=zeros(NvoxelsMasked,1);       
                 p6_ML_fit=zeros(NvoxelsMasked,1);      
@@ -838,8 +853,8 @@ classdef SMI
             end
         end        
         % =================================================================
-        function RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params,MergeDistance)
-            % RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params,MergeDistance)
+        function RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params,MergeDistance,D_FW)
+            % RotInvs = Generate_SM_wFW_b_beta_TE_ws0_training_data(b,beta,TE,kernel_params,MergeDistance,D_FW)
             %
             % kernel_params = [s0 f Da Depar Deperp f_FW T2a T2e p2 p4 p6]
             %
@@ -856,31 +871,31 @@ classdef SMI
             [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(b,beta,TE,MergeDistance);                
             % NShells=size(table_4D,2);
             
-            K0_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(0,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+            K0_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(0,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
             if size(kernel_params,2)==9
                 p2=kernel_params(:,9);
-                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
                 RotInvs=s0.*[K0_all p2.*abs(K2_all)];
             elseif size(kernel_params,2)==10
                 p2=kernel_params(:,9);
-                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
                 p4=kernel_params(:,10);
-                K4_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                K4_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
                 RotInvs=s0.*[K0_all p2.*abs(K2_all) p4.*abs(K4_all)];
             elseif size(kernel_params,2)==11
                 p2=kernel_params(:,9);
-                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
                 p4=kernel_params(:,10);
-                K4_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                K4_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(4,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
                 p6=kernel_params(:,11);
-                K6_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(6,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e]);
+                K6_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(6,table_4D(1,:),table_4D(2,:),table_4D(4,:),[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
                 RotInvs=s0.*[K0_all p2.*abs(K2_all) p4.*abs(K4_all) p6.*abs(K6_all)];
             end
         end
         % =================================================================
-        function [Kell] = RotInv_Kell_wFW_b_beta_TE_numerical(ell,b,beta,TE,kernel)
+        function [Kell] = RotInv_Kell_wFW_b_beta_TE_numerical(ell,b,beta,TE,kernel,D_FW)
             %
-            % [Kell] = RotInv_Kell_wFW_b_beta_TE_numerical(ell,b,beta,TE,kernel)
+            % [Kell] = RotInv_Kell_wFW_b_beta_TE_numerical(ell,b,beta,TE,kernel,D_FW)
             %
             % kernel must have: [f,Da,Depar,Deperp,f_w,T2a,T2e]
             % with size: [Nvoxels x 5] or [Nvoxels x 7]
@@ -925,7 +940,7 @@ classdef SMI
                 T2a=1000*ones(size(f));
                 T2e=1000*ones(size(f));
             end
-            D_FW=3;T2_FW=500;
+            T2_FW=500;
             % I=w*fun(x)
             % n=100;
             % xx=[0.000143136613279400;0.000754024680202100;0.00185243263343740;0.00343753148127830;0.00550780237850410;0.00806122964697150;0.0110953207565408;0.0146071121181468;0.0185931728720922;0.0230496085372541;0.0279720649318720;0.0333557324784602;0.0391953509273330;0.0454852145087352;0.0522191775146365;0.0593906603074908;0.0669926557514177;0.0750177360602043;0.0834580600557996;0.0923053808304118;0.101551053804843;0.111186045175252;0.121200940740146;0.131585955098990;0.142330941213472;0.153425400322099;0.164858492198430;0.176619045742935;0.188695569898146;0.201076264876411;0.213749033689310;0.226701493967453;0.239920990059119;0.253394605395905;0.267109175113321;0.281051298913984;0.295207354160849;0.309563509187685;0.324105736813789;0.338819828049735;0.353691405980764;0.368705939814248;0.383848759077513;0.399105067952132;0.414459959730698;0.429898431381943;0.445405398209969;0.460965708593282;0.476564158789204;0.492185507789229;0.507814492210772;0.523435841210796;0.539034291406718;0.554594601790031;0.570101568618057;0.585540040269302;0.600894932047868;0.616151240922487;0.631294060185752;0.646308594019236;0.661180171950265;0.675894263186211;0.690436490812315;0.704792645839151;0.718948701086016;0.732890824886679;0.746605394604095;0.760079009940881;0.773298506032547;0.786250966310691;0.798923735123589;0.811304430101854;0.823380954257065;0.835141507801571;0.846574599677901;0.857669058786528;0.868414044901010;0.878799059259854;0.888813954824748;0.898448946195157;0.907694619169588;0.916541939944200;0.924982263939796;0.933007344248582;0.940609339692509;0.947780822485363;0.954514785491265;0.960804649072667;0.966644267521540;0.972027935068128;0.976950391462746;0.981406827127908;0.985392887881853;0.988904679243459;0.991938770353029;0.994492197621496;0.996562468518722;0.998147567366563;0.999245975319798;0.999856863386721];
@@ -970,9 +985,9 @@ classdef SMI
             end
         end
         % =================================================================
-        function [ signal ] = SM_wFW_b_beta_TE_RealSphHarm_quadInt(f,Da,Depar,Deperp,f_extra,T2a,T2e,plm,b,bvec,beta,TE,NlebPoints,CS_phase,epsilon_rectify)
+        function [ signal ] = SM_wFW_b_beta_TE_RealSphHarm_quadInt(f,Da,Depar,Deperp,f_extra,T2a,T2e,plm,b,bvec,beta,TE,NlebPoints,CS_phase,epsilon_rectify,D_FW)
         %
-        % [ signal ] = SM_wFW_b_beta_TE_RealSphHarm_quadInt(f,Da,Depar,Deperp,f_extra,T2a,T2e,plm,b,bvec,beta,TE,NlebPoints,CS_phase,epsilon_rectify)
+        % [ signal ] = SM_wFW_b_beta_TE_RealSphHarm_quadInt(f,Da,Depar,Deperp,f_extra,T2a,T2e,plm,b,bvec,beta,TE,NlebPoints,CS_phase,epsilon_rectify,D_FW)
         %
         % This function computes the signal from applying a multidimensional diffusion
         % encoding in 3D while the fiber bundle (composed of 2 non-exchanging
@@ -1108,7 +1123,7 @@ classdef SMI
         Ylm_n = SMI.get_even_SH(dirs_Leb,Lmax,CS_phase);
 
 
-        D_FW=3;T2_FW=500;
+        T2_FW=500;
         M=length(f);
 
         Pn_Quad_SH_ALL_ODF=zeros(Nq,M);

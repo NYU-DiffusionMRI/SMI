@@ -44,9 +44,11 @@ options.sigma = abs(sigma_nii.img);
 options.compartments = {'IAS','EAS'}; % The order does not matter
 options.NoiseBias    = 'Rician'; % this data has Rician noise bias
 options.MLTraining.bounds = [0.05, 1, 1, 0.1, 0, 50, 50, 0.05; 0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
+% The order is: [f, Da, Depar, Deperp, fw, T2a, T2e, p2] (If data has
+% fixed TE then the T2a and T2e priors are simply ignored)
 
 % Run SM fitting
-tic
+ticm
 [out] = SMI.fit(dwi,options);
 t=toc;
 fprintf('Time SM fit %f s\n',t)
@@ -69,7 +71,7 @@ pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI_3datasets/dataset_2'
 % Load data and protocol
 nii = load_untouch_nii(fullfile(pathFiles,'dwi.nii'));
 dwi = abs(double(nii.img));
-bval = load(fullfile(pathFiles,'dwi.bval'));
+bval = load(fullfile(pathFiles,'dwi.bval'));y
 beta = load(fullfile(pathFiles,'dwi.beta'));
 dirs = load(fullfile(pathFiles,'dwi.bvec'));
 % Load mask
@@ -93,8 +95,11 @@ options.sigma = abs(sigma_nii.img);
 
 % Specify options for the fit
 options.compartments = {'IAS','EAS','FW'}; % The order does not matter
+options.D_FW = 3; % Free water diffusivity at body temperature
 options.NoiseBias    = 'None'; % the example data has ~ zero-mean noise
 options.MLTraining.bounds = [0.05, 1, 1, 0.1, 0, 50, 50, 0.05; 0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
+% The order is: [f, Da, Depar, Deperp, fw, T2a, T2e, p2] (If data has
+% fixed TE then the T2a and T2e priors are simply ignored)
 
 % Run SM fitting
 tic
@@ -142,8 +147,11 @@ options.sigma = abs(sigma_nii.img);
 
 % Specify options for the fit
 options.compartments = {'IAS','EAS','FW'}; % The order does not matter
+options.D_FW = 3; % Free water diffusivity at body temperature
 options.NoiseBias    = 'None'; % the example data has ~ zero-mean noise
 options.MLTraining.bounds = [0.05   1      1      0.1      0       50    50    0.05;0.95   3      3      1.2      1    150   120    0.99];
+% The order is: [f, Da, Depar, Deperp, fw, T2a, T2e, p2] (If data has
+% fixed TE then the T2a and T2e priors are simply ignored)
 options.RotInv_Lmax=2;
 
 % Run SM fitting
