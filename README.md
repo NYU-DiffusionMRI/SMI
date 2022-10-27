@@ -61,6 +61,7 @@ Standard Model parameters (diffusion) + compartmental T2 values (only if multipl
 - Diffusivities are returned in microstructural units [squared micrometers / milliseconds] (independently of input units).
 - Compartmental T2 values are returned in [milliseconds].
 - Note that compartmental T2 maps will only be outputed if variable TE data was used.
+- Rotational invariants will also be an output. To normalize them, simply divide by b0 for fixed TE data or by proton density for variable TE data.
 
 <br>
 
