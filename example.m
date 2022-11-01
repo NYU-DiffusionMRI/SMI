@@ -48,7 +48,7 @@ options.MLTraining.bounds = [0.05, 1, 1, 0.1, 0, 50, 50, 0.05; 0.95, 3, 3, 1.2, 
 % fixed TE then the T2a and T2e priors are simply ignored)
 
 % Run SM fitting
-ticm
+tic
 [out] = SMI.fit(dwi,options);
 t=toc;
 fprintf('Time SM fit %f s\n',t)
@@ -71,7 +71,7 @@ pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI_3datasets/dataset_2'
 % Load data and protocol
 nii = load_untouch_nii(fullfile(pathFiles,'dwi.nii'));
 dwi = abs(double(nii.img));
-bval = load(fullfile(pathFiles,'dwi.bval'));y
+bval = load(fullfile(pathFiles,'dwi.bval'));
 beta = load(fullfile(pathFiles,'dwi.beta'));
 dirs = load(fullfile(pathFiles,'dwi.bvec'));
 % Load mask

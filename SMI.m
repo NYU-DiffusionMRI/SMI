@@ -682,7 +682,7 @@ classdef SMI
                 beta=beta(:)';
             end
             if isempty(TE)
-                TE=zeros(size(bval))+100;
+                TE=zeros(size(bval));
             else
                 TE=TE(:)';
             end
@@ -1038,7 +1038,7 @@ classdef SMI
         if ~exist('CS_phase','var') || isempty(CS_phase) || CS_phase
             CS_phase=1;
         end
-        if ~exist('epsilon_rectify','var') || isempty(epsilon_rectify)
+        if ~exist('epsilon_rectify','var') || isempty(epsilon_rectify) || ~epsilon_rectify
             flag_rectify=0;
         else
             flag_rectify=1;
@@ -1294,7 +1294,7 @@ classdef SMI
                 beta=beta(:)';
             end
             if isempty(TE)
-                TE=zeros(size(bval))+100;
+                TE=zeros(size(bval));
             else
                 TE=TE(:)';
             end
@@ -1477,7 +1477,7 @@ classdef SMI
                 beta=beta(:)';
             end
             if isempty(TE)
-                TE=zeros(size(bval))+100;
+                TE=zeros(size(bval));
             else
                 TE=TE(:)';
             end
