@@ -156,6 +156,7 @@ The code provides some additional flexibility:
 
 ## SMI Authors
 - [Santiago Coelho](https://santiagocoelho.github.io/)
+- [Benjamin Ades-Aron](https://scholar.google.com/citations?hl=en&user=xNhHFuAAAAAJ&view_op=list_works#)
 - [Jelle Veraart](https://med.nyu.edu/faculty/jelle-veraart)
 - [Els Fieremans](https://www.diffusion-mri.com/who-we-are/els-fieremans/)
 - [Dmitry Novikov](https://www.diffusion-mri.com/who-we-are/dmitry-novikov/)
