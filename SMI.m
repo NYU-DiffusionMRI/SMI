@@ -184,8 +184,12 @@ classdef SMI
             if (~isfield(options,'b'))||(~isfield(options,'dirs'))
                 error('b and dirs are compulsory arguments for SMI to run')
             end
-            b    = options.b;
             dirs = options.dirs;
+            if max(options.b)<100
+                b_micro_units=options.b;
+            else
+                b_micro_units=options.b/1000;
+            end
             
             if ~isfield(options,'MergeDistance')
                 MergeDistance = [];
@@ -259,7 +263,7 @@ classdef SMI
             end
 
             if ~isfield(options,'Lmax')
-                Lmax = SMI.GetDefaultLmax(b,beta,TE,MergeDistance);
+                Lmax = SMI.GetDefaultLmax(b_micro_units,beta,TE,MergeDistance);
             else
                 Lmax = options.Lmax;
             end
@@ -329,9 +333,9 @@ classdef SMI
             
             if ~isfield(options,'sigma')
                 if isempty(TE)
-                    b0_for_sigma_flag=(b<0.1);
+                    b0_for_sigma_flag=(b_micro_units<0.1);
                 else
-                    b0_for_sigma_flag=(b<0.1)&(TE==min(TE));
+                    b0_for_sigma_flag=(b_micro_units<0.1)&(TE==min(TE));
                 end
                 b0s=dwi(:,:,:,b0_for_sigma_flag);
                 stand_dev=std(b0s,[],4);
@@ -347,7 +351,7 @@ classdef SMI
             end
             
             % Spherical harmonics fit
-            [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b,dirs,beta,TE,Lmax,MergeDistance);
+            [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
 
             % Concatenate rotational invariants
             out.RotInvs.S0=squeeze(Sl(:,:,:,1,:));
@@ -369,13 +373,13 @@ classdef SMI
             out.shells=table_4D_sorted;
             
             % Run polynomial regression training and fitting
-            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW);
+            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW);
             out.kernel = KERNEL;
             
             if flag_fit_fODF
                 % [plm,pl] = SMI.get_plm_from_Slm_and_kernel(Slm,Lmax,KERNEL,mask,table_4D_sorted,D_FW);
                 s0=Sl(:,:,:,1,1);
-                [plm,pl] = SMI.get_plm_from_S_and_kernel(dwi./s0,Lmax,KERNEL,mask,b,beta,TE,dirs,CS_phase,D_FW);
+                [plm,pl] = SMI.get_plm_from_S_and_kernel(dwi./s0,Lmax,KERNEL,mask,b_micro_units,beta,TE,dirs,CS_phase,D_FW);
                 out.plm = plm;
                 out.pl = pl;
                 out.CS_phase=CS_phase;
@@ -701,11 +705,11 @@ classdef SMI
                 keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=2);  %remove |beta| <= 0.2 and b <= 0.1
                 keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2];
             elseif RotInv_Lmax==4
-                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=2);  %remove |beta| <= 0.2 and b <= 0.1
                 keep_non_zero_S4=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=4);  %remove |beta| <= 0.2 and b <= 0.1
                 keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2 keep_non_zero_S4];
             elseif RotInv_Lmax==6
-                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=2);  %remove |beta| <= 0.2 and b <= 0.1
                 keep_non_zero_S4=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=4);  %remove |beta| <= 0.2 and b <= 0.1
                 keep_non_zero_S6=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=6);  %remove |beta| <= 0.2 and b <= 0.1
                 keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2 keep_non_zero_S4 keep_non_zero_S6];
