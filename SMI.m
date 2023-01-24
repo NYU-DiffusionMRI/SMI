@@ -698,7 +698,7 @@ classdef SMI
 
             keep_non_zero_S0=true(1,size(table_4D,2));
             if RotInv_Lmax==2
-                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
+                keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=2);  %remove |beta| <= 0.2 and b <= 0.1
                 keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2];
             elseif RotInv_Lmax==4
                 keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1);  %remove |beta| <= 0.2 and b <= 0.1
