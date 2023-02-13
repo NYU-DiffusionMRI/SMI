@@ -331,18 +331,18 @@ classdef SMI
                 flag_Rician_bias = 1;
             end
             
-            if ~isfield(options,'sigma')
+            if ~isfield(options,'sigma')||isempty(options.sigma)
                 if isempty(TE)
                     b0_for_sigma_flag=(b_micro_units<0.1);
                 else
                     b0_for_sigma_flag=(b_micro_units<0.1)&(TE==min(TE));
                 end
                 b0s=dwi(:,:,:,b0_for_sigma_flag);
-                stand_dev=std(b0s,[],4);
-                sigma=smooth3(stand_dev,'gaussian',5,1);
+                % sigma = smooth3(std(b0s,[],4),'gaussian',5,1);
+                sigma = double(smooth3(SMI.PatchBasedSigma(b0s,[3 3 3]),'gaussian',3,1));
                 warning('sigma was not an input (not recommended)')
             else
-                sigma = options.sigma;
+                sigma = double(options.sigma);
             end
             
             if flag_Rician_bias
@@ -375,7 +375,7 @@ classdef SMI
             % Run polynomial regression training and fitting
             KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW);
             out.kernel = KERNEL;
-            
+            out.sigma = sigma;
             if flag_fit_fODF
                 % [plm,pl] = SMI.get_plm_from_Slm_and_kernel(Slm,Lmax,KERNEL,mask,table_4D_sorted,D_FW);
                 s0=Sl(:,:,:,1,1);
@@ -1456,6 +1456,43 @@ classdef SMI
             end
             Y_lm=repmat(extra_factor',1,Nmeas).*repmat(K_lm',1,Nmeas).*phi_term.*P_l_in_cos_theta;
             Ylm_n=Y_lm';
+        end
+        % =================================================================
+        function sigma = PatchBasedSigma(data_4D,kernel)
+        % sigma = PatchBasedSigma(data_4D,kernel)
+        %
+        %
+            [Nx,Ny,Nz,Nmeas] = size(data_4D);
+            residuals = data_4D-repmat(mean(data_4D,4),[1 1 1 Nmeas]);
+            if isempty(kernel)||kernel(1)==1
+                sigma = 1.4826*mad(residuals, 1,4);% use mad(,0) for mean instead of median
+            else
+                residuals=padarray(single(residuals),floor(kernel./2),'circular');
+                sigma=single(zeros([Nx,Ny,Nz]));
+                kh=floor(kernel/2);
+                sz_res=size(residuals);
+                for x=1:Nx
+                    Res_x=residuals(kh(1)+((x-kh(1)):(x+kh(1))),:,:,:);
+                    Res_x=reshape(permute(Res_x,[2 3 4 1]),sz_res(2),sz_res(3),[]); % Now it is size Ny x Nz x (kx x Nd)
+                    if kernel(1)==3
+                        Res_x_rep=cat(3,Res_x(1:Ny,  1:Nz,:),Res_x(1:Ny,  2:Nz+1,:),Res_x(1:Ny,  3:Nz+2,:),...
+                                        Res_x(2:Ny+1,1:Nz,:),Res_x(2:Ny+1,2:Nz+1,:),Res_x(2:Ny+1,3:Nz+2,:),...
+                                        Res_x(3:Ny+2,1:Nz,:),Res_x(3:Ny+2,2:Nz+1,:),Res_x(3:Ny+2,3:Nz+2,:));
+                    elseif kernel(1)==5
+                        Res_x_rep=cat(3,Res_x(1:Ny,  1:Nz,:),Res_x(1:Ny,  2:Nz+1,:),Res_x(1:Ny,  3:Nz+2,:),Res_x(1:Ny,  4:Nz+3,:),Res_x(1:Ny,  5:Nz+4,:),...
+                                        Res_x(2:Ny+1,1:Nz,:),Res_x(2:Ny+1,2:Nz+1,:),Res_x(2:Ny+1,3:Nz+2,:),Res_x(2:Ny+1,4:Nz+3,:),Res_x(2:Ny+1,5:Nz+4,:),...
+                                        Res_x(3:Ny+2,1:Nz,:),Res_x(3:Ny+2,2:Nz+1,:),Res_x(3:Ny+2,3:Nz+2,:),Res_x(3:Ny+2,4:Nz+3,:),Res_x(3:Ny+2,5:Nz+4,:),...
+                                        Res_x(4:Ny+3,1:Nz,:),Res_x(4:Ny+3,2:Nz+1,:),Res_x(4:Ny+3,3:Nz+2,:),Res_x(4:Ny+3,4:Nz+3,:),Res_x(4:Ny+3,5:Nz+4,:),...
+                                        Res_x(5:Ny+4,1:Nz,:),Res_x(5:Ny+4,2:Nz+1,:),Res_x(5:Ny+4,3:Nz+2,:),Res_x(5:Ny+4,4:Nz+3,:),Res_x(5:Ny+4,5:Nz+4,:));
+                    else
+                        error('kernel for sigma estimation can only be [1 1 1], [3 3 3], or [5 5 5]')
+                    end
+                    % Now Res_x_rep is size Ny x Nz x (kx xky x ky x Nd)
+            %         sigma_yz=std(Res_x_rep,[],3);
+                    sigma_yz = 1.4826 * mad(Res_x_rep,1,3);
+                    sigma(x,:,:) = sigma_yz;
+                end
+            end
         end
         % =================================================================
         function [table_4D,sorted_ids,shell_ids] = Group_dwi_in_shells_b_beta_TE(bval,beta,TE,MergeDistance)
