@@ -379,7 +379,8 @@ classdef SMI
             out.shells=table_4D_sorted;
             
             % Run polynomial regression training and fitting
-            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel_PR);
+            sigma_norm_limits = [0 0.2];
+            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel_PR);
             out.kernel = KERNEL;
             out.sigma = sigma;
             if flag_fit_fODF
@@ -409,11 +410,39 @@ classdef SMI
             else
                 filename_log = options.filename_log;
             end
-            file_log = 'SMI fitting parameters:\n';
-            file_log = [file_log sprintf('- %d \n',1)];
 
-    
-            save(fullfile(path_log,filename_log),file_log)
+            file_log = 'SMI fitting parameters:\n';
+            file_log = [file_log sprintf('- Noise bias: %s \n',options.NoiseBias)];
+            file_log = [file_log,'- Compartments:'];
+            for ii=1:length(options.compartments)
+                if ii==length(options.compartments)
+                    file_log = [file_log,' ',options.compartments{ii},'\n'];
+                else
+                    file_log = [file_log,' ',options.compartments{ii}];
+                end
+            end
+            Nshells = size(out.shells,2);
+            file_log = [file_log sprintf('- Sigma (normalized) ranges: [%2f %2f] split into %d intervals\n',sigma_norm_limits(1),sigma_norm_limits(2),Nlevels)];
+            file_log = [file_log sprintf('- Shells merging factor: %f\n',options.MergeDistance)];
+            file_log = [file_log sprintf(['- Final shells bval:   ',repmat('%.2f ',1,Nshells),' \n'],out.shells(1,:))];
+            file_log = [file_log sprintf(['- Final shells bshape: ',repmat('%.2f ',1,Nshells),' \n'],out.shells(2,:))];
+            file_log = [file_log sprintf(['- Final shells Ndirs:  ',repmat('%4d  ',1,Nshells),' \n'],out.shells(3,:))];
+            if length(unique(out.shells(4,:)))==1
+                file_log = [file_log '- Fixed TE data\n'];
+            else
+                file_log = [file_log sprintf('- Final shells TE:     %d \n',out.shells(4,:))];
+            end
+            file_log = [file_log sprintf('- Training samples: %d (for [ f, Da, Depar, Deperp, f_w, T2a, T2e, p2])\n',Ntraining)];
+            file_log = [file_log sprintf(['- Lower bounds for training (uniform distribution):  ',repmat('%4d  ',1,length(lb_training)),' \n'],lb_training)];
+            file_log = [file_log sprintf(['- Upper bounds for training (uniform distribution):  ',repmat('%4d  ',1,length(ub_training)),' \n'],ub_training)];
+            file_log = [file_log sprintf('- MAX S_l used for kernel polynomial regression: %d \n',RotInv_Lmax)];
+            file_log = [file_log sprintf('- Degree used for kernel polynomial regression: %d \n',Degree_Kernel_PR)];
+            file_log = [file_log sprintf('- Free water diffusivity used: %f um^2/ms \n',D_FW)];
+            Todays_date = datetime('now','TimeZone','local','Format','d-MMM-y HH:mm:ss Z');
+            file_log = [file_log sprintf('Fitting performed on: %s\n',Todays_date)];
+            fid = fopen(fullfile(path_log,filename_log),'wt');
+            fprintf(fid, file_log);
+            fclose(fid);
         end
         % =================================================================
         function [plm,pl] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW)
