@@ -276,6 +276,12 @@ classdef SMI
                 RotInv_Lmax = options.RotInv_Lmax;
             end
 
+            if ~isfield(options,'Degree_Kernel_PR')
+                Degree_Kernel_PR = 3;
+            else
+                Degree_Kernel_PR = options.Degree_Kernel_PR;
+            end
+
             % Generate or read priors
             if any(any(isnan(options.MLTraining.bounds)))&&isfield(options.MLTraining,'prior')
                 prior = options.MLTraining.prior;
@@ -373,7 +379,7 @@ classdef SMI
             out.shells=table_4D_sorted;
             
             % Run polynomial regression training and fitting
-            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW);
+            KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior,Nlevels,[0 0.2],flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel_PR);
             out.kernel = KERNEL;
             out.sigma = sigma;
             if flag_fit_fODF
@@ -390,6 +396,24 @@ classdef SMI
                 [EPSILON,~,~] = SMI.Compute_eps_ODF_rectification(plm(2:end,:),CS_phase);
                 out.epsilon=SMI.vectorize(EPSILON',mask);
             end
+            % =================================================================
+            % Write log file with all fitting details
+            if ~isfield(options,'path_log')
+                path_log = pwd;
+            else
+                path_log = options.path_log;
+            end
+            if ~isfield(options,'filename_log')
+                randomstr = char(randi([65 90],1,10));
+                filename_log = ['log_SMI_',randomstr,'.txt'];
+            else
+                filename_log = options.filename_log;
+            end
+            file_log = 'SMI fitting parameters:\n';
+            file_log = [file_log sprintf('- %d \n',1)];
+
+    
+            save(fullfile(path_log,filename_log),file_log)
         end
         % =================================================================
         function [plm,pl] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW)
@@ -644,10 +668,13 @@ classdef SMI
             end
         end
         % =================================================================
-        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW)
-            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW)
+        function KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel)
+            % KERNEL = StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,bval,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel)
             %
             % Output: KERNEL=[f_ML_fit Da_ML_fit Depar_ML_fit Deperp_ML_fit f_FW_ML_fit T2a_ML_fit T2e_ML_fit p2_ML_fit p4_ML_fit p6_ML_fit];
+            if ~exist('Degree_Kernel', 'var') || isempty(Degree_Kernel)
+                Degree_Kernel=3;
+            end            
 
             sz_RotInvs=size(RotInvs);
             if length(sz_RotInvs)==4
@@ -721,7 +748,6 @@ classdef SMI
             sigma_noise_norm_levels_ids(SigmaNormalized>sigma_noise_norm_levels_edges(end))=Nlevels;
             sigma_noise_norm_levels_mean=1/2*(sigma_noise_norm_levels_edges(2:end)+sigma_noise_norm_levels_edges(1:end-1));
 
-            Degree_Kernel=3;
             X_fit_norm = SMI.Compute_extended_moments(RotInvsNormalized(:,keep_RotInvs_kernel),Degree_Kernel);
 
             NvoxelsMasked=size(RotInvsNormalized,1);
