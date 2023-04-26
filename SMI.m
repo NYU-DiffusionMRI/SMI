@@ -293,7 +293,11 @@ classdef SMI
 %                 prior=options.MLTraining.prior;
             else
                 if ~isfield(options.MLTraining,'Ntraining')
-                    Ntraining = 4e4;
+                    if fit_T2
+                        Ntraining = 2e5;
+                    else
+                        Ntraining = 1e5;
+                    end
                 else
                     Ntraining = options.MLTraining.Ntraining;
                 end
