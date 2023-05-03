@@ -463,6 +463,7 @@ classdef SMI
             end
 
             LMAX=max(Lmax);
+            if LMAX==0, error('Lmax needs to be larger than 0 for fitting the fODF'), end
             L_all    = repelem(0:2:LMAX,2*(0:2:LMAX)+1);
             N_l      = sqrt((2*L_all+1)*(4*pi));
             Y_LM_matrix = SMI.get_even_SH(dirs,LMAX,CS_phase);
@@ -513,15 +514,19 @@ classdef SMI
                 end
                 Kell=permute(Kell,[3 2 1]);
 
-                plm=zeros(LMAX*(LMAX+3)/2+1,Nvoxels);
+                % plm=zeros(LMAX*(LMAX+3)/2+1,Nvoxels);
+                plm=zeros(LMAX*(LMAX+3)/2,Nvoxels);
                 Nlm=2*(0:2:LMAX)+1;
                 for ii=1:Nvoxels
-                    KltimesYlm=repelem(Kell(:,:,ii),Nlm,1)'.*(Y_LM_matrix.*N_l);
-                    plm(:,ii)=KltimesYlm\dwi_norm(:,ii);
+                    KltimesYlm=repelem(Kell(:,:,ii),Nlm,1)'.*Y_LM_matrix;%(Y_LM_matrix.*N_l);
+                    % plm(:,ii)=KltimesYlm\dwi_norm(:,ii);
+                    dwi_norm_minus_spherical_mean = dwi_norm(:,ii)-KltimesYlm(:,1);
+                    plm(:,ii)=KltimesYlm(:,2:end)\dwi_norm_minus_spherical_mean;
                 end
 
                 plm=SMI.vectorize(plm,mask);
                 NormEll=4*pi*(2*(2:2:8)+1);
+%                 NormEll=(2*(2:2:8)+1);
                 %NormEll = [1 1 1 1];
                 if LMAX==2
                     pl=sqrt(sum(plm(:,:,:,1:5).^2,4)/NormEll(1));
