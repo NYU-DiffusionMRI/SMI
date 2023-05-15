@@ -455,6 +455,8 @@ classdef SMI
             % This function does not assume shells for plm estimation,
             % joint plm estimation from DWI+kernel
             %
+            % PLM ARE NORMALIZED
+            %
             if ~exist('beta', 'var') || isempty(beta)
                 beta = ones(size(b));
             end
@@ -518,16 +520,14 @@ classdef SMI
                 plm=zeros(LMAX*(LMAX+3)/2,Nvoxels);
                 Nlm=2*(0:2:LMAX)+1;
                 for ii=1:Nvoxels
-                    KltimesYlm=repelem(Kell(:,:,ii),Nlm,1)'.*Y_LM_matrix;%(Y_LM_matrix.*N_l);
+                    KltimesYlm=repelem(Kell(:,:,ii),Nlm,1)'.*(Y_LM_matrix.*N_l);
                     % plm(:,ii)=KltimesYlm\dwi_norm(:,ii);
                     dwi_norm_minus_spherical_mean = dwi_norm(:,ii)-KltimesYlm(:,1);
                     plm(:,ii)=KltimesYlm(:,2:end)\dwi_norm_minus_spherical_mean;
                 end
 
                 plm=SMI.vectorize(plm,mask);
-                NormEll=4*pi*(2*(2:2:8)+1);
-%                 NormEll=(2*(2:2:8)+1);
-                %NormEll = [1 1 1 1];
+                NormEll=ones(1,4);%4*pi*(2*(2:2:8)+1);
                 if LMAX==2
                     pl=sqrt(sum(plm(:,:,:,1:5).^2,4)/NormEll(1));
                 elseif LMAX==4
