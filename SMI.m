@@ -361,7 +361,9 @@ classdef SMI
             end
             
             % Spherical harmonics fit
-            [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
+            % % [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
+            % Spherical harmonics fit with rank 1 denoising on Slm to compute Sl
+            [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL_rank1Sl(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
 
             % Concatenate rotational invariants
             out.RotInvs.S0=squeeze(Sl(:,:,:,1,:));
@@ -1473,6 +1475,203 @@ classdef SMI
                     Slm(:,:,:,:,ii)=SMI.vectorize(S_lm_clusters_all(:,:,ii),mask);
                 end
             end
+        end
+        % =================================================================
+        function [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL_rank1Sl(DWI,mask,bval,bvec,beta,TE,Lmax,MergeDistance,CS_phase)
+            % [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL_rank1Sl(DWI,mask,bval,bvec,beta,TE,Lmax,MergeDistance,CS_phase)
+            % 
+            % Identical to Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL but it
+            % removes non-central xi bias in Sl by assuming S_lm(b) is rank-1 for all b
+            %
+            % This function performs the linear fit of Slm on each shell using real spherical
+            % harmonics as defined in https://cs.dartmouth.edu/~wjarosz/publications/dissertation/appendixB.pdf
+            %
+            % The Condon-Shortley phase is used in this definition
+            %
+            % Inputs: 
+            % DWI is assumed to be either 2D [Nmeasurements x Nvoxels] or 4D [Nx x Ny x Nz x Nmeasurements]
+            % bval, bvec, beta, TE indicate the acquisition
+            % If beta or TE are constant throughout the acquisition, these can be left
+            % empty
+            % Lmax is the maximum order considered for the fitting of Slms
+            % (this can be a different order in all clusters but input order is the same as given by Group_dwi_in_shells_b_beta_TE)
+            %
+            % Outputs: Slm is size [N_SH_coeffs x Nvoxels x Nclusters]
+            %          Sl is size [Lmax/2+1 x Nvoxels x Nclusters]
+            %          table_4D_sorted has a size [4 x Nshells], 
+            %          The order of the Rotational Invariants is given by Group_dwi_in_shells_b_beta_TE
+            %          and it is provided in table_4D_sorted
+            %
+            % By: Santiago Coelho
+            
+            if ~exist('CS_phase', 'var') || isempty(CS_phase)
+                CS_phase=1;
+            end
+            
+            sz_DWI=size(DWI);
+            if length(sz_DWI)==4
+                flag_4D=1;
+            elseif length(sz_DWI)==2
+                flag_4D=0;
+            else
+                error('DWI must be a 2D or 4D array')
+            end
+
+            if flag_4D
+                if isempty(mask)
+                    mask=true(sz_DWI(1:3));
+                end
+                dwi_2D = SMI.vectorize(DWI,mask);
+            else
+                dwi_2D = DWI;
+            end
+
+            if ~isvector(bval)
+                error('bval should be a vector')
+            else
+                bval=bval(:)';
+            end
+            if isempty(beta)
+                beta=zeros(size(bval))+1;
+            else
+                beta=beta(:)';
+            end
+            if isempty(TE)
+                TE=zeros(size(bval));
+            else
+                TE=TE(:)';
+            end
+
+            Nvoxels=size(dwi_2D,2);
+            Nmeas=size(dwi_2D,1);
+
+            if length(bval)~=Nmeas
+                error('bval should be a vector with the same length as the number of DWI')
+            end
+
+            [bb,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,MergeDistance);
+
+
+            if isempty(Lmax)
+                Lmax = SMI.GetDefaultLmax(bval,beta,TE,MergeDistance);
+            end
+
+            Nshells=size(bb,2);
+            if isscalar(Lmax)
+                Lmax=Lmax*ones(1,Nshells);
+            end
+
+            % Hard-wiring Lmax=0 for b0s and STE data
+            Lmax(bb(1,:)<0.025)=0;
+            Lmax(abs(bb(2,:))<0.025)=0;
+
+            if max(bval)<500
+                flag_microstructure_units=1;
+                % make all b0s LTE
+                beta(bval<0.05)=1;
+            else
+                flag_microstructure_units=0;
+                % make all b0s LTE
+                beta(bval<50)=1;
+            end
+
+            if isempty(MergeDistance)
+                if flag_microstructure_units
+                    MergeDistance=0.1;
+                else
+                    MergeDistance=100;
+                end
+            end
+
+
+            N_SH_coeffs=1+Lmax.*(Lmax+3)/2;
+            if size(bvec,1)==Nmeas
+                dirs=bvec;
+            else
+                dirs=bvec';
+            end
+            l=0:2:max(Lmax);
+            l_all=[];
+            m_all=[];
+            for ii=1:length(l)
+                l_all=[l_all, l(ii)*ones(1,2*l(ii)+1)];
+                m_all=[m_all -l(ii):l(ii)];
+            end
+            N_l_all=sqrt((2*l_all+1)*(4*pi));
+            N_l_unique=sqrt((2*l+1)*(4*pi));
+            
+            Y_LM_matrix = SMI.get_even_SH(dirs,max(Lmax),CS_phase);
+
+            S_l_clusters_all=zeros(max(Lmax)/2+1,Nvoxels,Nshells);
+            S_lm_clusters_all=zeros(max(N_SH_coeffs),Nvoxels,Nshells);
+            id_measurements=1:Nmeas;
+            ids_current_cluster_all=[];
+            for ii=1:Nshells
+                ids_current_cluster=id_measurements((abs(bb(1,ii)-bval)<MergeDistance)&(abs(bb(2,ii)-beta)<MergeDistance)&(abs(bb(4,ii)-TE)<1e-1));
+                if abs(length(ids_current_cluster)-bb(3,ii))>0.1
+                    error('count of elements in current cluster failed, check bb and B inputs')
+                end
+                if (abs(bb(2,ii))>0.045)&&(bb(1,ii)>0.05)
+                    ids_current_lm=1:N_SH_coeffs(ii);
+                    S_lm_current_cluster=Y_LM_matrix(ids_current_cluster,ids_current_lm)\dwi_2D(ids_current_cluster,:);
+                    S_l_current_cluster=zeros(Lmax(ii)/2+1,Nvoxels);
+                    S_l_current_cluster(1,:)=abs(S_lm_current_cluster(1,:));
+                    for jj=2:2:Lmax(ii)
+                        ids_currentl_m=(1/2*(jj+1).*(jj+2)-jj)+((-jj):(jj));
+                        S_l_current_cluster(jj/2+1,:)=sqrt(sum(S_lm_current_cluster(ids_currentl_m,:).^2,1));
+                    end
+                else
+                    S_lm_current_cluster=zeros(N_SH_coeffs(ii),Nvoxels);
+                    S_l_current_cluster=zeros(Lmax(ii)/2+1,Nvoxels);
+                    S_lm_current_cluster(1,:)=sqrt(4*pi)*mean(dwi_2D(ids_current_cluster,:),1);
+                    S_l_current_cluster(1,:)=abs(S_lm_current_cluster(1,:));
+                end
+                S_lm_clusters_all(1:N_SH_coeffs(ii),:,ii)=S_lm_current_cluster./repmat(N_l_all(1:N_SH_coeffs(ii))',1,Nvoxels);
+                S_l_clusters_all(1:(Lmax(ii)/2+1),:,ii)=S_l_current_cluster./repmat(N_l_unique(1:(Lmax(ii)/2+1))',1,Nvoxels);
+                ids_current_cluster_all=[ids_current_cluster_all,[ids_current_cluster*0+ii;ids_current_cluster]];
+            end  
+            Slm=S_lm_clusters_all;
+            Sl=S_l_clusters_all;
+            Sl_dn=zeros(size(S_l_clusters_all));
+            Slm_dn=zeros(size(Slm));
+            if nargout>=3
+                ids_clusters_all=ids_current_cluster_all;
+            end
+            if nargout==4
+                table_4D_sorted=bb;
+            end
+            
+            id_shells = 1:Nshells;
+            for ll=2:2:max(Lmax)
+                if sum(Lmax >= ll) > 1
+                    id_useful_shells = id_shells(Lmax>=ll);
+                    id_current_band = l_all == ll;
+                    for kk = 1:Nvoxels                        
+                        Slm_voxel_raw = squeeze(Slm(id_current_band,kk,id_useful_shells));
+                        Slm_voxel_dn = SMI.LowRankDenoising(Slm_voxel_raw,1);
+                        Slm_dn(id_current_band,kk,id_useful_shells) = Slm_voxel_dn;
+                        Sl_dn(ll/2+1,kk,id_useful_shells) = sqrt(sum(Slm_voxel_dn.^2,1));
+                    end
+                end
+            end
+
+            if flag_4D
+                % reshape Sl and Slm
+                Sl=zeros(sz_DWI(1),sz_DWI(2),sz_DWI(3),max(Lmax)/2+1,Nshells);
+                Slm=zeros(sz_DWI(1),sz_DWI(2),sz_DWI(3),max(N_SH_coeffs),Nshells);
+                for ii=1:Nshells
+                    Sl(:,:,:,:,ii)=SMI.vectorize(Sl_dn(:,:,ii),mask);
+                    Slm(:,:,:,:,ii)=SMI.vectorize(Slm_dn(:,:,ii),mask);
+                end
+            end
+        end
+        % =================================================================
+        function Xdn = LowRankDenoising(X,p)
+            % Xdn = LowRankDenoising(X,p)
+            % 
+            % Fixed p low-rank denoising, does svd and keeps p largest singular values
+            [U,S,V] = svd(X);
+            Xdn= U(:,1:p)*S(1:p,1:p)*V(:,1:p)';
         end
         % =================================================================
         function Ylm_n = get_even_SH(dirs,Lmax,CS_phase)
