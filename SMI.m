@@ -1632,8 +1632,8 @@ classdef SMI
             end  
             Slm=S_lm_clusters_all;
             Sl=S_l_clusters_all;
-            Sl_dn=zeros(size(S_l_clusters_all));
-            Slm_dn=zeros(size(Slm));
+            Sl_dn=S_l_clusters_all;
+            Slm_dn=S_lm_clusters_all;
             if nargout>=3
                 ids_clusters_all=ids_current_cluster_all;
             end
