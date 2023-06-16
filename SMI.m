@@ -361,7 +361,7 @@ classdef SMI
             end
             
             % Spherical harmonics fit
-            % % [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
+            %%%%%[~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
             % Spherical harmonics fit with rank 1 denoising on Slm to compute Sl
             [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL_rank1Sl(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
 
