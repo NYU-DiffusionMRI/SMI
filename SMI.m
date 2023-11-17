@@ -437,18 +437,18 @@ classdef SMI
             file_log = [file_log sprintf('- Shells merging factor: %f\n',options.MergeDistance)];
             file_log = [file_log sprintf(['- Final shells bval:   ',repmat('%.2f ',1,Nshells),' \n'],out.shells(1,:))];
             file_log = [file_log sprintf(['- Final shells bshape: ',repmat('%.2f ',1,Nshells),' \n'],out.shells(2,:))];
-            file_log = [file_log sprintf(['- Final shells Ndirs:  ',repmat('%4d  ',1,Nshells),' \n'],out.shells(3,:))];
+            file_log = [file_log sprintf(['- Final shells Ndirs:  ',repmat('%d  ',1,Nshells),' \n'],out.shells(3,:))];
             if length(unique(out.shells(4,:)))==1
                 file_log = [file_log '- Fixed TE data\n'];
             else
                 file_log = [file_log sprintf('- Final shells TE: ',repmat('%.1f ',1,Nshells),' \n',out.shells(4,:))];
             end
             file_log = [file_log sprintf('- Training samples: %d (for [ f, Da, Depar, Deperp, f_w, T2a, T2e, p2])\n',Ntraining)];
-            file_log = [file_log sprintf(['- Lower bounds for training (uniform distribution):  ',repmat('%4d  ',1,length(lb_training)),' \n'],lb_training)];
-            file_log = [file_log sprintf(['- Upper bounds for training (uniform distribution):  ',repmat('%4d  ',1,length(ub_training)),' \n'],ub_training)];
+            file_log = [file_log sprintf(['- Lower bounds for training (uniform distribution):  ',repmat('%.2f  ',1,length(lb_training)),' \n'],lb_training)];
+            file_log = [file_log sprintf(['- Upper bounds for training (uniform distribution):  ',repmat('%.2f  ',1,length(ub_training)),' \n'],ub_training)];
             file_log = [file_log sprintf('- MAX S_l used for kernel polynomial regression: %d \n',RotInv_Lmax)];
             file_log = [file_log sprintf('- Degree used for kernel polynomial regression: %d \n',Degree_Kernel_PR)];
-            file_log = [file_log sprintf('- Free water diffusivity used: %f um^2/ms \n',D_FW)];
+            file_log = [file_log sprintf('- Free water diffusivity used: %.2f um^2/ms \n',D_FW)];
 
             fid = fopen(fullfile(path_log,filename_log),'wt');
             fprintf(fid, file_log);
