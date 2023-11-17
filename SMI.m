@@ -422,7 +422,7 @@ classdef SMI
 
             file_log = 'SMI fitting parameters:\n';
             Todays_date = datetime('now','TimeZone','local','Format','d-MMM-y HH:mm:ss Z');
-            file_log = [file_log sprintf('Fitting performed on: %s\n',Todays_date)];
+            file_log = [file_log sprintf('Performed on: %s\n',Todays_date)];
             file_log = [file_log sprintf('- Noise bias: %s \n',options.NoiseBias)];
             file_log = [file_log,'- Compartments:'];
             for ii=1:length(options.compartments)
