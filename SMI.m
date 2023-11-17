@@ -416,8 +416,13 @@ classdef SMI
             else
                 filename_log = options.filename_log;
             end
+            if ~strcmp(filename_log(end-3:end),'.txt')
+                filename_log = [filename_log,'.txt'];
+            end
 
             file_log = 'SMI fitting parameters:\n';
+            Todays_date = datetime('now','TimeZone','local','Format','d-MMM-y HH:mm:ss Z');
+            file_log = [file_log sprintf('Fitting performed on: %s\n',Todays_date)];
             file_log = [file_log sprintf('- Noise bias: %s \n',options.NoiseBias)];
             file_log = [file_log,'- Compartments:'];
             for ii=1:length(options.compartments)
@@ -436,7 +441,7 @@ classdef SMI
             if length(unique(out.shells(4,:)))==1
                 file_log = [file_log '- Fixed TE data\n'];
             else
-                file_log = [file_log sprintf('- Final shells TE:     %d \n',out.shells(4,:))];
+                file_log = [file_log sprintf('- Final shells TE: ',repmat('%.1f ',1,Nshells),' \n',out.shells(4,:))];
             end
             file_log = [file_log sprintf('- Training samples: %d (for [ f, Da, Depar, Deperp, f_w, T2a, T2e, p2])\n',Ntraining)];
             file_log = [file_log sprintf(['- Lower bounds for training (uniform distribution):  ',repmat('%4d  ',1,length(lb_training)),' \n'],lb_training)];
@@ -444,8 +449,7 @@ classdef SMI
             file_log = [file_log sprintf('- MAX S_l used for kernel polynomial regression: %d \n',RotInv_Lmax)];
             file_log = [file_log sprintf('- Degree used for kernel polynomial regression: %d \n',Degree_Kernel_PR)];
             file_log = [file_log sprintf('- Free water diffusivity used: %f um^2/ms \n',D_FW)];
-            Todays_date = datetime('now','TimeZone','local','Format','d-MMM-y HH:mm:ss Z');
-            file_log = [file_log sprintf('Fitting performed on: %s\n',Todays_date)];
+
             fid = fopen(fullfile(path_log,filename_log),'wt');
             fprintf(fid, file_log);
             fclose(fid);
