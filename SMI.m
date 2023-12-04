@@ -772,7 +772,9 @@ classdef SMI
             Ndirs=table_4D(3,:);
 
             keep_non_zero_S0=true(1,size(table_4D,2));
-            if RotInv_Lmax==2
+            if RotInv_Lmax==0
+                keep_RotInvs_kernel=keep_non_zero_S0;
+            elseif RotInv_Lmax==2
                 keep_non_zero_S2=(abs(table_4D(2,:))>0.2)&(table_4D(1,:)>0.1)&(Lmax>=2);  %remove |beta| <= 0.2 and b <= 0.1
                 keep_RotInvs_kernel=[keep_non_zero_S0 keep_non_zero_S2];
             elseif RotInv_Lmax==4
@@ -823,6 +825,13 @@ classdef SMI
                 f=1-f_FW;
             end            
                         
+            if RotInv_Lmax==0
+                p2=prior(:,8);
+                RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2],MergeDistance,D_FW);
+                p2_ML_fit=zeros(NvoxelsMasked,1);  
+                sigma_Ndirs_factor=sqrt(Ndirs);
+                RotInvs_train = RotInvs_train(:,1:end/2);
+            end
             if RotInv_Lmax==2
                 p2=prior(:,8);
                 RotInvs_train = SMI.Generate_SM_wFW_b_beta_TE_ws0_training_data(bval,beta,TE,[0*f+1,f,Da,Depar,Deperp,f_FW,T2a,T2e,p2],MergeDistance,D_FW);
@@ -902,6 +911,11 @@ classdef SMI
             f_FW_ML_fit(f_FW_ML_fit<0)=0;f_FW_ML_fit(f_FW_ML_fit>1)=1;
             T2a_ML_fit(T2a_ML_fit<30)=30;T2a_ML_fit(T2a_ML_fit>150)=150;
             T2e_ML_fit(T2e_ML_fit<30)=30;T2e_ML_fit(T2e_ML_fit>150)=150;
+            if RotInv_Lmax==0
+                p2_ML_fit=[];
+                p4_ML_fit=[];
+                p6_ML_fit=[];
+            end
             if RotInv_Lmax==2
                 p2_ML_fit(p2_ML_fit<0)=0;p2_ML_fit(p2_ML_fit>1)=1;
                 p4_ML_fit=[];
