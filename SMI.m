@@ -435,13 +435,14 @@ classdef SMI
             Nshells = size(out.shells,2);
             file_log = [file_log sprintf('- Sigma (normalized) ranges: [%2f %2f] split into %d intervals\n',sigma_norm_limits(1),sigma_norm_limits(2),Nlevels)];
             file_log = [file_log sprintf('- Shells merging factor: %f\n',options.MergeDistance)];
+            file_log = [file_log sprintf(['- Final shells Lmax:   ',repmat('%d ',1,Nshells),' \n'],Lmax)];
             file_log = [file_log sprintf(['- Final shells bval:   ',repmat('%.2f ',1,Nshells),' \n'],out.shells(1,:))];
             file_log = [file_log sprintf(['- Final shells bshape: ',repmat('%.2f ',1,Nshells),' \n'],out.shells(2,:))];
             file_log = [file_log sprintf(['- Final shells Ndirs:  ',repmat('%d  ',1,Nshells),' \n'],out.shells(3,:))];
             if length(unique(out.shells(4,:)))==1
                 file_log = [file_log '- Fixed TE data\n'];
             else
-                file_log = [file_log sprintf('- Final shells TE: ',repmat('%.1f ',1,Nshells),' \n',out.shells(4,:))];
+                file_log = [file_log sprintf(['- Final shells TE: ',repmat('%.1f ',1,Nshells),' \n'],out.shells(4,:))];
             end
             file_log = [file_log sprintf('- Training samples: %d (for [ f, Da, Depar, Deperp, f_w, T2a, T2e, p2])\n',Ntraining)];
             file_log = [file_log sprintf(['- Lower bounds for training (uniform distribution):  ',repmat('%.2f  ',1,length(lb_training)),' \n'],lb_training)];
