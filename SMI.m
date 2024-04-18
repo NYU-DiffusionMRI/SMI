@@ -282,6 +282,16 @@ classdef SMI
                 Degree_Kernel_PR = options.Degree_Kernel_PR;
             end
 
+            if ~isfield(options,'run_maximumlikelihood')
+                run_maximumlikelihood = 0;
+            else
+                run_maximumlikelihood = options.run_maximumlikelihood;
+            end
+
+            if run_maximumlikelihood
+                flag_fit_fODF = 1; % This is needed as an initial condition for the search
+            end
+
             % Generate or read priors
             if any(any(isnan(options.MLTraining.bounds)))&&isfield(options.MLTraining,'prior')
                 prior = options.MLTraining.prior;
@@ -363,7 +373,7 @@ classdef SMI
             % Spherical harmonics fit
             %%%%%[~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
             % Spherical harmonics fit with rank 1 denoising on Slm to compute Sl
-            [~,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL_rank1Sl(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
+            [Slm,Sl,~,table_4D_sorted] = SMI.Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL_rank1Sl(dwi,mask,b_micro_units,dirs,beta,TE,Lmax,MergeDistance);
 
             % Concatenate rotational invariants
             out.RotInvs.S0=squeeze(Sl(:,:,:,1,:));
@@ -391,7 +401,14 @@ classdef SMI
             out.sigma = sigma;
             if flag_fit_fODF
                 % [plm,pl] = SMI.get_plm_from_Slm_and_kernel(Slm,Lmax,KERNEL,mask,table_4D_sorted,D_FW);
-                s0=Sl(:,:,:,1,1);
+                if ~fit_T2
+                    s0 = Sl(:,:,:,1,1); % This does not work for variable TE data! (this is not S0)
+                else % Fit s0 if variable TE data (not the b0)
+                    logb0s = SMI.vectorize(log(dwi(:,:,:,b_micro_units<0.1)),mask);
+                    TE_b0s = TE(b_micro_units<0.1);
+                    coeffs = logb0s'*pinv([ones(length(TE_b0s),1) TE_b0s(:)]');
+                    s0 = SMI.vectorize(exp(coeffs(:,1))',mask);
+                end
                 [plm,pl] = SMI.get_plm_from_S_and_kernel(dwi./s0,Lmax,KERNEL,mask,b_micro_units,beta,TE,dirs,CS_phase,D_FW);
                 out.plm = plm;
                 out.pl = pl;
@@ -403,6 +420,28 @@ classdef SMI
                 [EPSILON,~,~] = SMI.Compute_eps_ODF_rectification(plm(2:end,:),CS_phase);
                 out.epsilon=SMI.vectorize(EPSILON',mask);
             end
+
+            if run_maximumlikelihood
+                flag_FW = single(id_FW);
+                if flag_FW || fit_T2
+                    kernel_from_PR = cat(4,out.kernel(:,:,:,1:7),out.plm(:,:,:,1:5));
+                elseif flag_FW || ~fit_T2
+                    kernel_from_PR = cat(4,out.kernel(:,:,:,1:5),out.plm(:,:,:,1:5));
+                elseif ~flag_FW || fit_T2
+                    kernel_from_PR = cat(4,out.kernel(:,:,:,[1:4 6:7]),out.plm(:,:,:,1:5));
+                elseif ~flag_FW || ~fit_T2
+                    kernel_from_PR = cat(4,out.kernel(:,:,:,1:4),out.plm(:,:,:,1:5));
+                end
+                KernelfODFInitializations = cat(4,kernel_from_PR,out.plm(:,:,:,1:5));
+                [KERNEL_maxlik,p2m_maxlik,RESNORM,Niterations] = SMI.MaxLikfit_on_Slm(Slm,Lmax,MergeDistance,KernelfODFInitializations,mask,b_micro_units,beta,TE,flag_FW,D_FW,CS_phase);
+                toc
+                out.KERNEL_maxlik = KERNEL_maxlik;
+                out.p2_maxlik = sqrt(sum(p2m_maxlik.^2,4));
+                out.p2m_maxlik = p2m_maxlik;
+                out.RESNORM_maxlik = RESNORM;
+                out.Niterations_maxlik = Niterations;
+            end
+
             % =================================================================
             % Write log file with all fitting details
             if ~isfield(options,'path_log')
@@ -662,6 +701,266 @@ classdef SMI
                 end                    
             end
         end
+        % =================================================================
+        % =================================================================
+        % =================================================================
+        % Maximum likelihood implementation on | Slm(b,beta,TE) - plm*Kl(b,beta,TE) |
+        function [KERNEL,plm,RESNORM,Niterations] = MaxLikfit_on_Slm(Slm,Lmax,MergeDistance,KernelfODFInitializations,mask,bval,beta,TE,flag_FW,D_FW,CS_phase)
+            % 
+            % 
+            % [KERNEL,plm,RESNORM,Niterations] = MaxLikfit_on_Slm(Slm,Lmax,MergeDistance,KernelfODFInitializations,mask,bval,beta,TE,flag_FW,D_FW,CS_phase)
+            %
+            % Output: KERNEL = [s0 f Da Depar Deperp f_FW T2a T2e p2m]; (as 4D array)
+            % Output: KERNEL = [s0 f Da Depar Deperp T2a T2e p2m]; (as 4D array)
+            % Output: KERNEL = [s0 f Da Depar Deperp f_FW p2m]; (as 4D array)
+            % Output: KERNEL = [s0 f Da Depar Deperp f_FW p2m]; (as 4D array)
+            if ~isvector(bval)
+                error('bval should be a vector')
+            else
+                bval=bval(:)';
+            end
+            if isempty(beta)
+                beta=zeros(size(bval))+1;
+            else
+                beta=beta(:)';
+            end
+            if isempty(TE)
+                TE=zeros(size(bval));
+            else
+                TE=TE(:)';
+            end
+            if ~exist('D_FW', 'var') || isempty(D_FW)
+                D_FW = 3;
+            end
+            if ~exist('CS_phase', 'var') || isempty(CS_phase)
+                CS_phase=1;
+            else
+                CS_phase=0;
+            end
+            if length(unique(TE))==1
+                do_not_fit_T2=1;
+            else
+                do_not_fit_T2=0;
+            end
+            [table_4D,~,~] = SMI.Group_dwi_in_shells_b_beta_TE(bval,beta,TE,MergeDistance);
+            Nshells = size(table_4D,2);
+            sz_Slm=size(Slm);
+            if length(sz_Slm)==5
+                flag_4D_output=1;
+            elseif length(sz_Slm)==4
+                flag_4D_output=0;
+            else
+                error('Spherical Harmonics must be a 3D or 5D array')
+            end
+            
+            if flag_4D_output % Slm are 5D
+                if isempty(mask)
+                    mask=true(sz_Slm(1:3));
+                end
+                SlmNotNormalized = [];
+                for ii=1:Nshells
+                    SlmNotNormalized = [SlmNotNormalized ; SMI.vectorize(squeeze(Slm(:,:,:,:,ii)),mask)];
+                end
+            else
+                SlmNotNormalized = Slm;
+            end       
+            
+            max_ellm = 1/2 * (max(Lmax) + 1) * (max(Lmax) + 2);
+            id_00 = 1:max_ellm:max_ellm*Nshells;
+            if max_ellm>=2
+                id_2m = [2:max_ellm:max_ellm*Nshells ; 3:max_ellm:max_ellm*Nshells ; 4:max_ellm:max_ellm*Nshells ; 5:max_ellm:max_ellm*Nshells ; 6:max_ellm:max_ellm*Nshells]';
+                id_2m = id_2m(:);
+                L2_used = repmat(Lmax>=2,1,5);
+                id_pick = [id_00 id_2m(L2_used)'];
+            else
+                id_pick = id_00;
+            end
+            SlmNotNormalized2fit = SlmNotNormalized(id_pick,:);
+            ell = [zeros(1,Nshells) , 2*ones(1,5*sum(Lmax>=2))];
+            table_4D_rep =repmat(table_4D,1,6);
+            if do_not_fit_T2
+                table_Klm = [[table_4D(1:2,:), table_4D_rep(1:2,repmat(Lmax>=2,1,5))];ell];
+            else
+                table_Klm = [[table_4D([1:2 4],:), table_4D_rep([1:2 4],repmat(Lmax>=2,1,5))];ell];
+            end
+        
+            if length(unique(TE))==1
+                do_not_fit_T2=1;
+                s0_initialization = SlmNotNormalized(1,:);
+            else
+                do_not_fit_T2=0;
+                ids = 1:max_ellm*Nshells;
+                bval_S00 = repelem(table_4D(1,:),1,max_ellm);
+                TE_S00 = repelem(table_4D(4,:),1,max_ellm);
+                keep_b0s = ismember(ids, id_00) & (bval_S00<0.1);
+                logb0s = log(abs(SlmNotNormalized(keep_b0s,:)));
+                TE_b0s = TE_S00(keep_b0s);
+                coeffs = logb0s'*pinv([ones(length(TE_b0s),1) TE_b0s(:)]');
+                s0_initialization = exp(coeffs(:,1))';
+                inf_s0 = ~isfinite(s0_initialization);
+                s0_initialization(inf_s0) = 2 * SlmNotNormalized(1,inf_s0);
+            end
+        
+            if ~exist('KernelfODFInitializations', 'var') || isempty(KernelfODFInitializations)
+                if flag_FW
+                    kernel_default_x0 = [0.5 2 2 1 0.05];
+                else
+                    kernel_default_x0 = [0.5 2 2 1];
+                end
+                if do_not_fit_T2
+                    KernelfODFInitializations = repmat(kernel_default_x0,length(s0_initialization),1);       
+                else
+                    KernelfODFInitializations = repmat([kernel_default_x0 90 50],length(s0_initialization),1);       
+                end
+            else
+                KernelfODFInitializations = SMI.vectorize(KernelfODFInitializations,mask);
+            end     
+            NkernelParam = 5 + flag_FW + 2*double(~do_not_fit_T2);
+            NvoxelsMasked=size(SlmNotNormalized,2);
+            if flag_FW
+                parfor ii=1:NvoxelsMasked
+                    init = [s0_initialization(ii) ; KernelfODFInitializations(:,ii)];
+                    Slm_not_normalized = SlmNotNormalized2fit(:,ii);
+                    [parameter_hat(:,ii),RESNORM(1,ii),~,exitflag(1,ii),Niterations(1,ii)] = SMI.MaxLik_Slm_fit_SM_withFW_wrapper(Slm_not_normalized, table_Klm, init);
+                end
+            else
+                parfor ii=1:NvoxelsMasked
+                    init = [s0_initialization(ii) ; KernelfODFInitializations(:,ii)];
+                    Slm_not_normalized = SlmNotNormalized2fit(:,ii);
+                    [parameter_hat(:,ii),RESNORM(1,ii),~,exitflag(1,ii),Niterations(1,ii)] = SMI.MaxLik_Slm_fit_SM_withoutFW_wrapper(Slm_not_normalized, table_Klm, init);
+                end
+            end
+            if flag_4D_output % 
+                KERNEL=SMI.vectorize(parameter_hat(1:NkernelParam,:),mask);
+                plm=SMI.vectorize(parameter_hat((NkernelParam+1):end,:),mask);
+                RESNORM=SMI.vectorize(RESNORM,mask);
+                Niterations=SMI.vectorize(Niterations,mask);
+            end
+        end
+        % =================================================================
+        function [parameter_hat,RESNORM,residual,exitflag,Niterations] = MaxLik_Slm_fit_SM_withFW_wrapper(Slm_not_normalized, table_Klm, init)
+        %
+        % Optimiser for SM nonlinear fitting (using Slm energy function)
+        %
+        %
+        % The cost function is currently Least Squares
+        
+        % Gradient Descent stage
+        % No gradient specified (finite difference)
+        % h=optimoptions('lsqnonlin','Algorithm','trust-region-reflective', 'MaxIter',3000,'MaxFunEvals',10000,'TolX',1e-4,'TolFun',1e-5, 'FunValCheck','on', 'Display', 'off','UseParallel',false);
+        h=optimoptions('lsqnonlin','Algorithm','trust-region-reflective', 'MaxIter',10000,'MaxFunEvals',20000,'TolX',1e-14,'TolFun',1e-14, 'FunValCheck','on', 'Display', 'off','UseParallel',false);
+        % h=optimoptions('lsqnonlin','Algorithm','levenberg-marquardt', 'MaxIter',10000,'MaxFunEvals',20000,'TolX',1e-20,'TolFun',1e-20, 'FunValCheck','on', 'Display', 'off','UseParallel',false);
+        
+        LowerBounds=[];%[0 0 0 0 0 0 0];
+        Dmax=3.5;
+        UpperBounds=[];%;[2 1 Dmax Dmax Dmax 1 1];
+        [parameter_hat,RESNORM,residual,exitflag,output,~,~] = lsqnonlin(@(x)SMI.MaxLik_Slm_fit_SM_withFW_fobj(x, table_Klm, Slm_not_normalized), init, LowerBounds,UpperBounds,h);
+        Niterations=output.iterations;
+        end
+        % =================================================================
+        function residuals = MaxLik_Slm_fit_SM_withFW_fobj(s0_kernel_fODF,table_Klm,Slm)
+        %
+        % 
+        D_FW = 3;
+        ell = table_Klm(end,:);
+        S0=s0_kernel_fODF(1); Da = s0_kernel_fODF(3); Depar = s0_kernel_fODF(4); Deperp = s0_kernel_fODF(5); %p2 = s0_kernel_fODF(7);
+        f = s0_kernel_fODF(2);
+        f_FW = s0_kernel_fODF(6);
+        if size(table_Klm,1)==3
+            TEs = zeros(1,size(table_Klm,2));
+            T2a = 100; T2e = 100;
+            if length(s0_kernel_fODF)==6
+                plm = [];
+            else
+                plm = s0_kernel_fODF(7:end);
+            end
+        else
+            TEs = table_Klm(3,:);
+            T2a = s0_kernel_fODF(7); T2e = s0_kernel_fODF(8);
+            if length(s0_kernel_fODF)==8
+                plm = [];
+            else
+                plm = s0_kernel_fODF(9:end);
+            end
+        end
+        K0_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(0,table_Klm(1,:),table_Klm(2,:),TEs,[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
+        K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_Klm(1,:),table_Klm(2,:),TEs,[f, Da, Depar, Deperp, f_FW, T2a, T2e],D_FW);
+        
+        p2m = plm(1:5);
+        NshellsL0 = sum(ell==0);
+        NshellsL2 = sum(ell==2)/5;
+        S00_pred = S0*K0_all(ell==0);
+        K2m = K2_all(ell==2);
+        S2m_pred = S0*K2m.*repelem(p2m(:)',1,NshellsL2);
+        Slm_pred = [ S00_pred S2m_pred ];
+        
+        % No weights - plain Slm differences
+        residuals =  (Slm(:)' - Slm_pred)';
+        residuals(~isfinite(residuals))=1e5;
+        end
+        % =================================================================
+        function [parameter_hat,RESNORM,residual,exitflag,Niterations] = MaxLik_Slm_fit_SM_withoutFW_wrapper(Slm_not_normalized, table_Klm, init)
+        %
+        % Optimiser for SM nonlinear fitting (using Slm energy function)
+        %
+        %
+        % The cost function is currently Least Squares
+        
+        % Gradient Descent stage
+        % No gradient specified (finite difference)
+        % h=optimoptions('lsqnonlin','Algorithm','trust-region-reflective', 'MaxIter',3000,'MaxFunEvals',10000,'TolX',1e-4,'TolFun',1e-5, 'FunValCheck','on', 'Display', 'off','UseParallel',false);
+        h=optimoptions('lsqnonlin','Algorithm','trust-region-reflective', 'MaxIter',10000,'MaxFunEvals',20000,'TolX',1e-14,'TolFun',1e-14, 'FunValCheck','on', 'Display', 'off','UseParallel',false);
+        % h=optimoptions('lsqnonlin','Algorithm','levenberg-marquardt', 'MaxIter',10000,'MaxFunEvals',20000,'TolX',1e-20,'TolFun',1e-20, 'FunValCheck','on', 'Display', 'off','UseParallel',false);
+        
+        LowerBounds=[];%[0 0 0 0 0 0 0];
+        Dmax=3.5;
+        UpperBounds=[];%;[2 1 Dmax Dmax Dmax 1 1];
+        [parameter_hat,RESNORM,residual,exitflag,output,~,~] = lsqnonlin(@(x)SMI.MaxLik_Slm_fit_SM_withoutFW_fobj(x, table_Klm, Slm_not_normalized), init, LowerBounds,UpperBounds,h);
+        Niterations=output.iterations;
+        
+        end
+        % =================================================================
+        function residuals = MaxLik_Slm_fit_SM_withoutFW_fobj(s0_kernel_fODF,table_Klm,Slm)
+        %
+        % 
+        D_FW = 3;
+        ell = table_Klm(end,:);
+        S0=s0_kernel_fODF(1); f = s0_kernel_fODF(2); Da = s0_kernel_fODF(3); Depar = s0_kernel_fODF(4); Deperp = s0_kernel_fODF(5); %p2 = s0_kernel_fODF(7);
+        if size(table_Klm,1)==3
+            TEs = zeros(1,size(table_Klm,2));
+            T2a = 100; T2e = 100;
+            if length(s0_kernel_fODF)==5
+                plm = [];
+            else
+                plm = s0_kernel_fODF(6:end);
+            end
+        else
+            TEs = table_Klm(3,:);
+            T2a = s0_kernel_fODF(6); T2e = s0_kernel_fODF(7);
+            if length(s0_kernel_fODF)==7
+                plm = [];
+            else
+                plm = s0_kernel_fODF(8:end);
+            end
+        end
+        
+        K0_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(0,table_Klm(1,:),table_Klm(2,:),TEs,[f, Da, Depar, Deperp, 0*f, T2a, T2e],D_FW);
+        K2_all = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(2,table_Klm(1,:),table_Klm(2,:),TEs,[f, Da, Depar, Deperp, 0*f, T2a, T2e],D_FW);
+        
+        p2m = plm(1:5); % Normalized plm are estimated here
+        NshellsL0 = sum(ell==0);
+        NshellsL2 = sum(ell==2)/5;
+        S00_pred = S0*K0_all(ell==0);
+        K2m = K2_all(ell==2);
+        S2m_pred = S0*K2m.*repelem(p2m(:)',1,NshellsL2);
+        Slm_pred = [ S00_pred S2m_pred ];
+        
+        % No weights - plain Slm differences
+        residuals =  (Slm(:)' - Slm_pred)';
+        residuals(~isfinite(residuals))=1e5;
+        end
+        % =================================================================
+        % =================================================================
         % =================================================================
         function [EPSILON,plm_rect,pl_rect] = Compute_eps_ODF_rectification(plm,CS_phase)
             % [EPSILON,plm_rect,pl_rect] = Compute_eps_ODF_rectification(plm,CS_phase)
@@ -993,7 +1292,7 @@ classdef SMI
             % Legendre polynomial. The integral is computed numerically
             % using Gaussian quadrature with 200 points (more than enough accuracy).
             %
-            % b is the b-value of the shell in um/ms2 x=[f,Da,Depar-Deperp,Deperp,f_extra];
+            % b is the b-value of the shell in um/ms2 kernel=[f,Da,Depar,Deperp,f_extra];
             %
             % By: Santiago Coelho
             Nvoxels=size(kernel,1);
@@ -1014,6 +1313,9 @@ classdef SMI
                 TE=reshape(TE,1,[]);
             else
                 error('TE must be a vector')
+            end
+            if ~exist('D_FW', 'var') || isempty(D_FW)
+                D_FW = 3;
             end
             f=kernel(:,1);
             Da=kernel(:,2);
@@ -1132,7 +1434,9 @@ classdef SMI
         else
             flag_rectify=1;
         end
-
+        if ~exist('D_FW', 'var') || isempty(D_FW)
+            D_FW = 3;
+        end
 
         [B,~] = SMI.ConstructAxiallySymmetricBset(b,beta,bvec);
         B(:,b<1e-3)=0; % To avoid NaN due to normalisation of the b-tensor
@@ -1352,6 +1656,8 @@ classdef SMI
             
             if ~exist('CS_phase', 'var') || isempty(CS_phase)
                 CS_phase=1;
+            else
+                CS_phase=0;
             end
             
             sz_DWI=size(DWI);
