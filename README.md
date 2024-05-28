@@ -156,7 +156,7 @@ The code provides some additional flexibility:
 
 ## Useful tips
 The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
-- For conventional 2-shell datasets (b=1000,2000 s/mm^2) set 'options.compartments' to {'IAS', 'EAS'}.
+- For conventional 2-shell datasets (b=1000,2000 s/mm^2) set 'options.compartments' to {'IAS', 'EAS'} (no FW compartment).
 - For ex-vivo data modify the training distribution bounds to account for the decreased diffusivity values.
 
 ## Useful papers discussing SMI advantages and limitations
