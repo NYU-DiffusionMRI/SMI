@@ -150,9 +150,19 @@ For typical SNR values found in clinical dMRI experiments, the optimal regressio
 The code provides some additional flexibility:
 - Rician bias correction: to de-bias the DWI before the spherical harmonics fit.
 - Variable number of compartments: 'IAS', 'EAS', 'FW'. _This will be extended but at the moment the only two options are {'IAS', 'EAS'} (default) or {'IAS', 'EAS', 'FW'}._
-- User defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
-- **(NOT READY YET)** Batch processing. Parameter estimation for multiple datasets with identical protocols. Here the machine learning training is done only once, regression coefficients are stored and applied to all.
+- User-defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
+
+
+## Useful tips
+The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
+- For conventional 2-shell datasets (b=1000,2000 s/mm^2) set 'options.compartments' to {'IAS', 'EAS'}.
+- For ex-vivo data modify the training distribution bounds to account for the decreased diffusivity values.
+
+## Useful papers discussing SMI advantages and limitations
+- [This paper in Imaging Neuroscience](https://doi.org/10.1162/imag_a_00102) discusses how to get the most from 2-shell datasets using multiple approaches for microstructure estimation (SMI, WMTI, NODDI, SMT).
+- [This paper soon to be published in Human Brain Mapping](https://doi.org/10.48550/arXiv.2402.17175) explores how variable TE helps determine the free-water fraction.
+
 
 <br>
 
