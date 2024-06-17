@@ -231,7 +231,16 @@ classdef SMI
             else
                 flag_rectify_fODF = options.flag_rectify_fODF;
             end
-            
+            if ~isfield(options,'flag_freeze_seeds') 
+                flag_freeze_seeds = 1;
+            else
+                flag_freeze_seeds = options.flag_freeze_seeds;
+            end
+            if flag_freeze_seeds
+                rng default
+            end
+
+
             % Grab compartments data from options (default is IAS + EAS + FW)
             flag_compartments=[0 0 0 0];
             if ~isfield(options,'compartments')
