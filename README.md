@@ -161,7 +161,7 @@ The Standard Model is very complex and this is why noise propagates into the mod
 
 ## Useful papers discussing SMI advantages and limitations
 - [This paper in Imaging Neuroscience](https://doi.org/10.1162/imag_a_00102) discusses how to get the most from 2-shell datasets using multiple approaches for microstructure estimation (SMI, WMTI, NODDI, SMT).
-- [This paper in Human Brain Mapping]([https://doi.org/10.48550/arXiv.2402.17175](https://doi.org/10.1002/hbm.26725)) explores how variable TE helps determine the free-water fraction and compares how much microstructure information you can extract from different acquisition times involving a range of diffusion weightings (intermediate b-values, high b-values, variable b-tensor shapes, variable echo times).
+- [This paper in Human Brain Mapping](https://doi.org/10.1002/hbm.26725) explores how variable TE helps determine the free-water fraction and compares how much microstructure information you can extract from different acquisition times involving a range of diffusion weightings (intermediate b-values, high b-values, variable b-tensor shapes, variable echo times).
 
 
 <br>
