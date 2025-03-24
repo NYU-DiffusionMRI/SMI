@@ -193,6 +193,7 @@ classdef SMI
             
             if ~isfield(options,'MergeDistance')
                 MergeDistance = [];
+                options.MergeDistance = 0.05;
             else
                 MergeDistance = options.MergeDistance;
             end
@@ -245,6 +246,7 @@ classdef SMI
             flag_compartments=[0 0 0 0];
             if ~isfield(options,'compartments')
                 flag_compartments=[1 1 0 0]; % Default is 2 compartments
+                options.compartments = {'IAS','EAS'};
             else
                 id_IAS = find(strcmp(options.compartments, 'IAS'));
                 id_EAS = find(strcmp(options.compartments, 'EAS'));
@@ -301,15 +303,35 @@ classdef SMI
                 flag_fit_fODF = 1; % This is needed as an initial condition for the search
             end
 
+            default_priors = [0.05, 1, 1, 0.1,   0,  50,  50, 0.05 ; ...
+                              0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
             % Generate or read priors
-            if any(any(isnan(options.MLTraining.bounds)))&&isfield(options.MLTraining,'prior')
+            if ~isfield(options,'MLTraining')
+                if fit_T2
+                    Ntraining = 2e5;
+                else
+                    Ntraining = 1e5;
+                end                
+                lb_training = default_priors(1,:);
+                ub_training = default_priors(2,:);
+                Lmax_training=6;
+                [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,plm_train] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_training);
+                if RotInv_Lmax==2
+                    prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
+                elseif RotInv_Lmax==4
+                    p4=sqrt(sum(plm_train(:,6:14).^2,2));
+                    prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4];
+                elseif RotInv_Lmax==6
+                    p4=sqrt(sum(plm_train(:,6:14).^2,2));
+                    p6=sqrt(sum(plm_train(:,15:27).^2,2));
+                    prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4,p6];
+                end
+            elseif any(any(isnan(options.MLTraining.bounds)))&&isfield(options.MLTraining,'prior')
                 prior = options.MLTraining.prior;
                 if ~fit_T2
                     % Add fake T2s (will be ignored since TE is fixed and T2 will not be estimated)
                     prior=[prior(:,1:5), 100*ones(size(prior,1),2), prior(:,6:end)];
                 end
-%             elseif isfield(options.MLTraining,'prior')
-%                 prior=options.MLTraining.prior;
             else
                 if ~isfield(options.MLTraining,'Ntraining')
                     if fit_T2
@@ -341,6 +363,47 @@ classdef SMI
                 end
             end
 
+
+%             % Generate or read priors
+%             if any(any(isnan(options.MLTraining.bounds)))&&isfield(options.MLTraining,'prior')
+%                 prior = options.MLTraining.prior;
+%                 if ~fit_T2
+%                     % Add fake T2s (will be ignored since TE is fixed and T2 will not be estimated)
+%                     prior=[prior(:,1:5), 100*ones(size(prior,1),2), prior(:,6:end)];
+%                 end
+% %             elseif isfield(options.MLTraining,'prior')
+% %                 prior=options.MLTraining.prior;
+%             else
+%                 if ~isfield(options.MLTraining,'Ntraining')
+%                     if fit_T2
+%                         Ntraining = 2e5;
+%                     else
+%                         Ntraining = 1e5;
+%                     end
+%                 else
+%                     Ntraining = options.MLTraining.Ntraining;
+%                 end
+%                 Lmax_training=6;
+%                 if ~isfield(options,'MLTraining')
+%                     lb_training = [0.05, 1, 1, 0.1,   0,  50,  50, 0.05];
+%                     ub_training = [0.95, 3, 3, 1.2, 0.5, 150, 120, 0.99];
+%                 else
+%                     lb_training = options.MLTraining.bounds(1,:);
+%                     ub_training = options.MLTraining.bounds(2,:);
+%                 end
+%                 [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,plm_train] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_training);
+%                 if RotInv_Lmax==2
+%                     prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
+%                 elseif RotInv_Lmax==4
+%                     p4=sqrt(sum(plm_train(:,6:14).^2,2));
+%                     prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4];
+%                 elseif RotInv_Lmax==6
+%                     p4=sqrt(sum(plm_train(:,6:14).^2,2));
+%                     p6=sqrt(sum(plm_train(:,15:27).^2,2));
+%                     prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4,p6];
+%                 end
+%             end
+
             if (RotInv_Lmax==2&&size(prior,2)<8)||(RotInv_Lmax==4&&size(prior,2)<9)||(RotInv_Lmax==6&&size(prior,2)<10)
                 error('Inconsistency between desired Lmax for ML fitting and prior distribution')
             end
@@ -356,6 +419,7 @@ classdef SMI
             % Apply Rician bias correction if needed
             if ~isfield(options,'NoiseBias')||strcmp(options.NoiseBias,'None')
                 flag_Rician_bias = 0;
+                options.NoiseBias = 'None';
             elseif strcmp(options.NoiseBias,'Rician')
                 flag_Rician_bias = 1;
             end
@@ -482,7 +546,7 @@ classdef SMI
             end
             Nshells = size(out.shells,2);
             file_log = [file_log sprintf('- Sigma (normalized) ranges: [%2f %2f] split into %d intervals\n',sigma_norm_limits(1),sigma_norm_limits(2),Nlevels)];
-            file_log = [file_log sprintf('- Shells merging factor: %f\n',options.MergeDistance)];
+            file_log = [file_log sprintf('- Shells merging factor: %f ms/um^2\n',options.MergeDistance)];
             file_log = [file_log sprintf(['- Final shells Lmax:   ',repmat('%d ',1,Nshells),' \n'],Lmax)];
             file_log = [file_log sprintf(['- Final shells bval:   ',repmat('%.2f ',1,Nshells),' \n'],out.shells(1,:))];
             file_log = [file_log sprintf(['- Final shells bshape: ',repmat('%.2f ',1,Nshells),' \n'],out.shells(2,:))];
