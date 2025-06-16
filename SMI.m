@@ -316,7 +316,7 @@ classdef SMI
                 ub_training = default_priors(2,:);
                 Lmax_training=6;
                 [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,plm_train] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_training);
-                if RotInv_Lmax==2
+                if RotInv_Lmax==0 || RotInv_Lmax==2
                     prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
                 elseif RotInv_Lmax==4
                     p4=sqrt(sum(plm_train(:,6:14).^2,2));
@@ -351,7 +351,7 @@ classdef SMI
                     ub_training = options.MLTraining.bounds(2,:);
                 end
                 [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,plm_train] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,lb_training,ub_training,Lmax_training);
-                if RotInv_Lmax==2
+                if RotInv_Lmax==0 || RotInv_Lmax==2
                     prior=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
                 elseif RotInv_Lmax==4
                     p4=sqrt(sum(plm_train(:,6:14).^2,2));
