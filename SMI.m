@@ -455,13 +455,13 @@ classdef SMI
 
             if run_maximumlikelihood
                 flag_FW = single(id_FW);
-                if flag_FW || fit_T2
+                if flag_FW && fit_T2
                     kernel_from_PR = cat(4,out.kernel(:,:,:,1:7),out.plm(:,:,:,1:5));
-                elseif flag_FW || ~fit_T2
+                elseif flag_FW && ~fit_T2
                     kernel_from_PR = cat(4,out.kernel(:,:,:,1:5),out.plm(:,:,:,1:5));
-                elseif ~flag_FW || fit_T2
+                elseif ~flag_FW && fit_T2
                     kernel_from_PR = cat(4,out.kernel(:,:,:,[1:4 6:7]),out.plm(:,:,:,1:5));
-                elseif ~flag_FW || ~fit_T2
+                elseif ~flag_FW && ~fit_T2
                     kernel_from_PR = cat(4,out.kernel(:,:,:,1:4),out.plm(:,:,:,1:5));
                 end
                 KernelfODFInitializations = cat(4,kernel_from_PR,out.plm(:,:,:,1:5));
