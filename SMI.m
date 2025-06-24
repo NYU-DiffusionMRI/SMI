@@ -1662,6 +1662,67 @@ classdef SMI
             end
         end
         % =================================================================
+        function [ signal ] = SM_wFW_b_beta_TE_RealSphHarm(f,Da,Depar,Deperp,f_extra,T2a,T2e,plm,b,bvec,beta,TE,CS_phase,D_FW)
+        % [ signal ] = SM_wFW_b_beta_TE_RealSphHarm(f,Da,Depar,Deperp,f_extra,T2a,T2e,plm,b,bvec,beta,TE,CS_phase,D_FW)
+        % same as SM_wFW_b_beta_TE_RealSphHarm_quadInt but faster because it uses
+        % the fODF SH expansion (previous code was made for analytical fODFs)
+        %
+        % This function assumes kernel params
+        % [f,Da,Depar,Deperp,f_extra,T2a,T2e] are vectors [M x 1]
+        % and fODF plm are [M x 5] or [M x 14] or [M x 27]
+        %==========================================================================
+        Nb = length(b);
+        if ~exist('CS_phase','var') || isempty(CS_phase) || CS_phase
+            CS_phase = 1;
+        end
+        if ~exist('D_FW', 'var') || isempty(D_FW)
+            D_FW = 3;
+        end
+        f_w = 1-f-f_extra;
+        kernel = [f, Da, Depar, Deperp, f_w, T2a,T2e];
+
+        Nlm = size(plm,2);
+        Lmax=sqrt(2*Nlm+9/4)-3/2;
+        if ~any(Lmax==2:2:10)
+            error('Lmax should be 2, 4, 6, 8, or 10')
+        end
+
+        % This lines rescales back the plm from being between 0,1 to being between
+        % 0 and N_l as it is defined for SH
+        L_unique=2:2:Lmax;
+        L_all=repelem(L_unique,2*L_unique+1);
+        N_l=sqrt((2*L_all+1)/(4*pi));
+        plm_not_normalized=plm.*N_l;
+        
+        Kell(:,:,1) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(0,b,beta,TE,kernel,D_FW);
+        if Lmax>0
+            for ii = 1:length(L_unique)
+                Kell(:,:,ii+1) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(L_unique(ii),b,beta,TE,kernel,D_FW);
+            end
+        end
+
+        Ylm = SMI.get_even_SH(bvec,Lmax,CS_phase);
+        p00 = 1/sqrt(4*pi);
+        S_00 = Kell(:,:,1)  * p00;
+        if Lmax>=2
+            p2m = repmat(plm_not_normalized(:,1:5),[1 1 Nb]);
+            S_2m = repmat(Kell(:,:,2),[1 1 5]) .* permute(p2m,[1 3 2]);
+            S_lm = cat(3,S_00,S_2m);
+        end
+        if Lmax>=4
+            p4m = repmat(plm_not_normalized(:,6:14),[1 1 Nb]);
+            S_4m = repmat(Kell(:,:,3),[1 1 9]) .* permute(p4m,[1 3 2]);
+            S_lm = cat(3,S_00,S_2m,S_4m);
+        end
+        if Lmax>=6
+            p6m = repmat(plm_not_normalized(:,15:27),[1 1 Nb]);
+            S_6m = repmat(Kell(:,:,4),[1 1 13]) .* permute(p6m,[1 3 2]);
+            S_lm = cat(3,S_00,S_2m,S_4m,S_6m);
+        end
+        signal = 4*pi*(sum(S_lm .* reshape(Ylm,[1 Nb (Nlm+1)]),3))';
+
+        end
+        % =================================================================
         function [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(DWI,mask,bval,bvec,beta,TE,Lmax,MergeDistance,CS_phase)
             % [Slm,Sl,ids_clusters_all,table_4D_sorted] = Fit2D4D_LLS_RealSphHarm_wSorting_norm_varL(DWI,mask,bval,bvec,beta,TE,Lmax,MergeDistance,CS_phase)
             % 
