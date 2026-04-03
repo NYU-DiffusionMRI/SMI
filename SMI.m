@@ -410,7 +410,11 @@ classdef SMI
             
             if flag_Rician_bias
                 ndwi = size(dwi, 4);
-                dwi=sqrt(abs(dwi.^2 - repmat(sigma.^2,[1 1 1 ndwi])));
+                X = abs(dwi).^2 - repmat(sigma.^2,[1 1 1 ndwi]);
+                % % Works well above SNR ~ 2
+                % dwi = sqrt(abs(X));
+                % Works well above SNR ~ 1.5 (preferred)
+                dwi = sqrt(max(cat(5,X,zeros(size(X))),[],5));
             end
             
             % Spherical harmonics fit
