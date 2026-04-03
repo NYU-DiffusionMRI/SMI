@@ -303,10 +303,10 @@ classdef SMI
                 flag_fit_fODF = 1; % This is needed as an initial condition for the search
             end
 
-            if ~isfield(options,'WM_fw_threshold')
-                WM_fw_threshold = 0.2;
+            if ~isfield(options,'Lmax')
+                Lmax = SMI.GetDefaultLmax(b_micro_units,beta,TE,MergeDistance);
             else
-                WM_fw_threshold = options.WM_fw_threshold;
+                Lmax = options.Lmax;
             end
 
 
@@ -460,9 +460,9 @@ classdef SMI
             KERNEL_wide = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior_wide,Nlevels,sigma_norm_limits,[1 1 1 0],MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel_PR);
             mask_flag_fw = KERNEL_wide(:,:,:,5) > WM_fw_threshold;
             
-            % Merge both fits
-            mask_flag_fw4D = repmat(mask_flag_fw, [1 1 1 size(KERNEL,4)]);
-            KERNEL(mask_flag_fw4D) = KERNEL_wide(mask_flag_fw4D);
+            
+            
+            
             
             out.kernel = KERNEL;
             out.sigma = sigma;
@@ -557,7 +557,6 @@ classdef SMI
             else
                 file_log = [file_log sprintf(['- Training data provided by the user \n'])];
             end
-            file_log = [file_log sprintf('- fw_flag threshold at: %.2f \n',WM_fw_threshold)];
             file_log = [file_log sprintf('- MAX S_l used for kernel polynomial regression: %d \n',RotInv_Lmax)];
             file_log = [file_log sprintf('- Degree used for kernel polynomial regression: %d \n',Degree_Kernel_PR)];
             file_log = [file_log sprintf('- Free water diffusivity used: %.2f um^2/ms \n',D_FW)];
