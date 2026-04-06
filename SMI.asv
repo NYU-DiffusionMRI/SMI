@@ -410,10 +410,11 @@ classdef SMI
             
             if flag_Rician_bias
                 ndwi = size(dwi, 4);
+                X = abs(dwi).^2 - repmat(sigma.^2,[1 1 1 ndwi]);
                 % % Works well above SNR ~ 2
-                dwi = sqrt(abs(abs(dwi).^2 - repmat(sigma.^2,[1 1 1 ndwi])));
-                % Works well above SNR ~ 1.5
-                % dwi = sqrt(max(cat(5,abs(dwi).^2 - repmat(sigma.^2,[1 1 1 ndwi]),abs(dwi)*0),[],5));
+                % dwi = sqrt(abs(X));
+                % Works well above SNR ~ 1.5 (preferred)
+                dwi = sqrt(max(cat(5,X,zeros(size(X))),[],5));
             end
             
             % Spherical harmonics fit
@@ -444,29 +445,27 @@ classdef SMI
             sigma_norm_limits = [0 0.2];
             KERNEL = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior,Nlevels,sigma_norm_limits,flag_compartments,MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel_PR);
             
-            % Bounds for wide priors
-            bounds_wide_priors = [0, 1.5, 1.5, 0.4, 0,  50,  50, 0 ; 1, 2.5, 2.5, 0.8, 1, 150, 120, 1 ];
-            % Generate wide priors for CSF voxels              
-            Lmax_training_wide = 6;
-            [f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,plm_train] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,bounds_wide_priors(1,:),bounds_wide_priors(2,:),Lmax_training_wide);
-            if RotInv_Lmax==0 || RotInv_Lmax==2
-                prior_wide=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2];
-            elseif RotInv_Lmax==4
-                p4=sqrt(sum(plm_train(:,6:14).^2,2));
-                prior_wide=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4];
-            elseif RotInv_Lmax==6
-                p4=sqrt(sum(plm_train(:,6:14).^2,2));
-                p6=sqrt(sum(plm_train(:,15:27).^2,2));
-                prior_wide=[f,Da,Depar,Deperp,f_FW,T2a,T2e,p2,p4,p6];
-            end            
-            % Run wide priors to detect high-CSF voxels 
-            KERNEL_wide = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior_wide,Nlevels,sigma_norm_limits,[1 1 1 0],MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel_PR);
-            mask_flag_fw = KERNEL_wide(:,:,:,5) > WM_fw_threshold;
-            
-            % Merge both fits
-            mask_flag_fw4D = repmat(mask_flag_fw, [1 1 1 size(KERNEL,4)]);
-            KERNEL(mask_flag_fw4D) = KERNEL_wide(mask_flag_fw4D);
-            
+            % if estimating free water make 2 runs
+            if flag_compartments(3)
+
+                prior_wide
+                % Bounds for wide priors
+                bounds_wide_priors = [0, 1.5, 1.5, 0.4, 0,  50,  50, 0 ; 1, 2.5, 2.5, 0.8, 1, 150, 120, 1 ];
+                % Generate wide priors for CSF voxels              
+                Lmax_training_wide = 6;
+                [f_wide,~,~,~,f_FW_wide,~,~,~,~] = SMI.Get_uniformly_distributed_SM_prior(Ntraining,bounds_wide_priors(1,:),bounds_wide_priors(2,:),Lmax_training_wide);
+                prior_wide(1,:) = f_wide;
+                prior_wide(5,:) = f_FW_wide;
+       
+                % Run wide priors to detect high-CSF voxels 
+                KERNEL_wide = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior_wide,Nlevels,sigma_norm_limits,[1 1 1 0],MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel_PR);
+                mask_flag_fw = KERNEL_wide(:,:,:,5) > WM_fw_threshold;
+                
+                % Merge both fits
+                mask_flag_fw4D = repmat(mask_flag_fw, [1 1 1 size(KERNEL,4)]);
+                KERNEL(mask_flag_fw4D) = KERNEL_wide(mask_flag_fw4D);
+            end
+
             out.kernel = KERNEL;
             out.sigma = sigma;
             if flag_fit_fODF
