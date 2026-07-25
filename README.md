@@ -184,6 +184,8 @@ options.fODF_regularization.TikhonovMatrix  = 'identity';  % or 'laplacebeltrami
 
 The script `example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.19 (non-negativity), and 0.19 (both), while the negative mass of the fODF drops from 0.16 to 0.03.
 
+The script also plots the resulting fODFs. In 2D it shows the amplitude along the plane containing both fibers, both as a signed profile (where the spurious negative lobes are easiest to see) and as a polar shape. In 3D it draws one glyph per deconvolution, with the radius equal to the fODF amplitude, the surface coloured by orientation, and the negative part of the fODF overlaid as a translucent red surface at radius `|fODF|` instead of being clipped away, so that what the non-negativity constraint removes is visible. All glyphs share a common radial scale, so they can be compared directly.
+
 
 ## Useful tips
 The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
