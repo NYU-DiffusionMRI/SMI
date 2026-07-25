@@ -1,0 +1,574 @@
+From af25cd38223f9dbf0b1d10ca47c029a60bd142d2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 25 Jul 2026 20:33:54 +0000
+Subject: [PATCH] Add non-negativity and Tikhonov regularization to the fODF
+ deconvolution
+
+The fODF deconvolution was an unregularized least squares fit, which is
+ill-conditioned because the kernel rotational invariants decay quickly
+with l, so the estimated fODFs have large negative lobes at clinical SNR.
+
+Two optional regularizers are added to get_plm_from_S_and_kernel:
+
+- Non-negativity, following constrained spherical deconvolution
+  (Tournier et al., NeuroImage 2007): the fODF is initialized with a low
+  order unconstrained fit and refined iteratively, penalizing its
+  amplitude on the directions where it falls below tau*mean(fODF) until
+  that set of directions stops changing.
+- Tikhonov damping lambda^2*||Gamma*plm||^2, with Gamma either the
+  identity or the Laplace-Beltrami matrix diag(l(l+1)).
+
+Both weights are dimensionless, the regularization blocks are rescaled
+by the norm of the rows of the design matrix of each voxel. Both are
+disabled by default, so the deconvolution is unchanged unless
+options.fODF_regularization is used.
+
+New static methods: fODF_RegularizationDefaults (option parsing and
+Tikhonov matrix), plm_regularized_deconvolution (per voxel solver), and
+GetUniformHemisphereDirs (directions where non-negativity is imposed).
+The options used, the number of iterations, the number of constrained
+directions, and a convergence flag per voxel are returned in
+out.fODF_regularization and written to the log file.
+
+Also adds example_fODF_regularization.m, a synthetic two-fiber example
+that compares the deconvolutions and verifies that the noise free
+deconvolution recovers the ground truth plm exactly.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01ELDbwN8nCdUQVoKkVv7yhH
+---
+ README.md                     |  31 ++++
+ SMI.m                         | 271 +++++++++++++++++++++++++++++++++-
+ example_fODF_regularization.m | 130 ++++++++++++++++
+ 3 files changed, 427 insertions(+), 5 deletions(-)
+ create mode 100644 example_fODF_regularization.m
+
+diff --git a/README.md b/README.md
+index f119c93..30c69a2 100644
+--- a/README.md
++++ b/README.md
+@@ -152,6 +152,37 @@ The code provides some additional flexibility:
+ - Variable number of compartments: 'IAS', 'EAS', 'FW'. _This will be extended but at the moment the only two options are {'IAS', 'EAS'} (default) or {'IAS', 'EAS', 'FW'}._
+ - User-defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
+ - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
++- Regularization (non-negativity and Tikhonov) of the fODF deconvolution, see below.
++
++
++### Regularized fODF deconvolution
++Once the kernel is known, the fODF spherical harmonic coefficients `plm` are obtained by deconvolving the kernel from the DWI. This is an ill-conditioned problem: the kernel rotational invariants `Kl` decay quickly with `l`, so the high order `plm` are dominated by noise and the estimated fODF usually has large negative lobes. Two optional regularizers are available (both are disabled by default, in which case the deconvolution is the usual unregularized least squares fit):
++
++- **Non-negativity**, as in constrained spherical deconvolution ([Tournier et al., NeuroImage 2007](https://doi.org/10.1016/j.neuroimage.2007.02.016)). The fODF is first estimated with a low order unconstrained fit and then refined: at every iteration the directions where the fODF falls below `tau*mean(fODF)` are collected and a penalty on their amplitude is added to the least squares problem, until that set of directions stops changing (typically 4-6 iterations).
++- **Tikhonov**, which adds `lambda_tikhonov^2*||Gamma*plm||^2` and damps the coefficients that the kernel attenuates the most. `Gamma` is either the identity or the Laplace-Beltrami matrix `diag(l(l+1))` (normalized by its maximum value), which penalizes high orders more strongly.
++
++Both weights are dimensionless (the regularization blocks are rescaled by the norm of the rows of the design matrix of each voxel), so the same value is meaningful across voxels and protocols. Values around 1 are a reasonable starting point for both, weights below ~0.1 have a negligible effect.
++
++```
++options.flag_fit_fODF = 1;
++
++% Non-negativity constraint (CSD-like)
++options.fODF_regularization.flag_nonneg     = 1;    % default 0
++options.fODF_regularization.lambda_nonneg   = 1;    % default 1
++options.fODF_regularization.tau             = 0.1;  % default 0.1
++options.fODF_regularization.Ndirs           = 300;  % default 300
++options.fODF_regularization.Niter           = 50;   % default 50 (max)
++options.fODF_regularization.Lmax_init       = 4;    % default 4
++
++% Tikhonov damping
++options.fODF_regularization.lambda_tikhonov = 0.3;         % default 0 (off)
++options.fODF_regularization.TikhonovMatrix  = 'identity';  % or 'laplacebeltrami'
++
++[out] = SMI.fit(dwi,options);
++```
++`out.fODF_regularization` returns the options that were used together with the number of iterations, the number of constrained directions, and a convergence flag for each voxel.
++
++The script `example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.19 (non-negativity), and 0.19 (both), while the negative mass of the fODF drops from 0.16 to 0.03.
+ 
+ 
+ ## Useful tips
+diff --git a/SMI.m b/SMI.m
+index c73378e..e020330 100644
+--- a/SMI.m
++++ b/SMI.m
+@@ -127,6 +127,29 @@ classdef SMI
+     % options.sigma contains a 3D array with the noise level, this can be
+     % computed using MPPCA (see github documentation for more details)
+     %
++    % % % fODF deconvolution regularization (only used if options.flag_fit_fODF=1)
++    % options.fODF_regularization is a structure with any of these fields (all
++    % of them are optional, the defaults reproduce the unregularized fit):
++    %
++    % options.fODF_regularization.flag_nonneg = 1 adds the non-negativity
++    %                     constraint of constrained spherical deconvolution
++    %                     (Tournier et al., NeuroImage 2007). The fODF
++    %                     amplitude is iteratively penalized on the directions
++    %                     where it is negative (default 0)
++    % options.fODF_regularization.lambda_nonneg weight of the non-negativity
++    %                     penalty (default 1, dimensionless)
++    % options.fODF_regularization.tau directions where the fODF is below
++    %                     tau*mean(fODF) are penalized (default 0.1)
++    % options.fODF_regularization.Ndirs number of directions where the
++    %                     constraint is imposed (default 300)
++    % options.fODF_regularization.Niter maximum number of iterations (default 50)
++    % options.fODF_regularization.Lmax_init Lmax of the initial unconstrained
++    %                     solution (default 4)
++    % options.fODF_regularization.lambda_tikhonov weight of the Tikhonov
++    %                     penalty lambda^2*||Gamma*plm||^2 (default 0, off)
++    % options.fODF_regularization.TikhonovMatrix 'identity' (default) or
++    %                     'laplacebeltrami' (Gamma=diag(l(l+1))/max(l(l+1)))
++    %
+     % Free water compartment
+     % options.D_FW this diffusivity is by default fixed at 3
+     % micrometer^2/ms which is the water diffusivity at body temperature.
+@@ -227,11 +250,16 @@ classdef SMI
+             else
+                 flag_fit_fODF = options.flag_fit_fODF;
+             end
+-            if ~isfield(options,'flag_rectify_fODF') 
++            if ~isfield(options,'flag_rectify_fODF')
+                 flag_rectify_fODF = 0;
+             else
+                 flag_rectify_fODF = options.flag_rectify_fODF;
+             end
++            if ~isfield(options,'fODF_regularization')
++                fODF_regularization = [];
++            else
++                fODF_regularization = options.fODF_regularization;
++            end
+             if ~isfield(options,'flag_freeze_seeds') 
+                 flag_freeze_seeds = 1;
+             else
+@@ -477,9 +505,10 @@ classdef SMI
+                     coeffs = logb0s'*pinv([ones(length(TE_b0s),1) TE_b0s(:)]');
+                     s0 = SMI.vectorize(exp(coeffs(:,1))',mask);
+                 end
+-                [plm,pl] = SMI.get_plm_from_S_and_kernel(dwi./s0,Lmax,KERNEL,mask,b_micro_units,beta,TE,dirs,CS_phase,D_FW);
++                [plm,pl,fODF_regularization] = SMI.get_plm_from_S_and_kernel(dwi./s0,Lmax,KERNEL,mask,b_micro_units,beta,TE,dirs,CS_phase,D_FW,fODF_regularization);
+                 out.plm = plm;
+                 out.pl = pl;
++                out.fODF_regularization = fODF_regularization;
+                 out.CS_phase=CS_phase;
+                 out.Lmax=Lmax;
+             end
+@@ -562,26 +591,49 @@ classdef SMI
+             file_log = [file_log sprintf('- MAX S_l used for kernel polynomial regression: %d \n',RotInv_Lmax)];
+             file_log = [file_log sprintf('- Degree used for kernel polynomial regression: %d \n',Degree_Kernel_PR)];
+             file_log = [file_log sprintf('- Free water diffusivity used: %.2f um^2/ms \n',D_FW)];
++            if flag_fit_fODF && isstruct(fODF_regularization)
++                if fODF_regularization.lambda_tikhonov>0
++                    file_log = [file_log sprintf('- fODF Tikhonov regularization: lambda = %.3g (%s) \n',fODF_regularization.lambda_tikhonov,fODF_regularization.TikhonovMatrix)];
++                else
++                    file_log = [file_log '- fODF Tikhonov regularization: none \n'];
++                end
++                if fODF_regularization.flag_nonneg
++                    file_log = [file_log sprintf('- fODF non-negativity constraint: lambda = %.3g, tau = %.3g, %d directions, up to %d iterations \n',...
++                        fODF_regularization.lambda_nonneg,fODF_regularization.tau,fODF_regularization.Ndirs,fODF_regularization.Niter)];
++                else
++                    file_log = [file_log '- fODF non-negativity constraint: none \n'];
++                end
++            end
+ 
+             fid = fopen(fullfile(path_log,filename_log),'wt');
+             fprintf(fid, file_log);
+             fclose(fid);
+         end
+         % =================================================================
+-        function [plm,pl] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW)
+-            % [plm,pl] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW) 
++        function [plm,pl,fODF_reg] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW,fODF_reg)
++            % [plm,pl,fODF_reg] = get_plm_from_S_and_kernel(dwi_norm,Lmax,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW,fODF_reg)
+             %
+             % This function does not assume shells for plm estimation,
+             % joint plm estimation from DWI+kernel
+             %
+             % PLM ARE NORMALIZED
+             %
++            % fODF_reg is an optional structure controlling the regularization
++            % of the deconvolution (see SMI.fODF_RegularizationDefaults). If it
++            % is empty or omitted the deconvolution is an unregularized LLS fit
++            % (default). Setting fODF_reg.flag_nonneg=1 adds the non-negativity
++            % constraint of constrained spherical deconvolution (Tournier et
++            % al., 2007) and fODF_reg.lambda_tikhonov>0 adds Tikhonov damping.
++            %
+             if ~exist('beta', 'var') || isempty(beta)
+                 beta = ones(size(b));
+             end
+             if ~exist('TE', 'var') || isempty(TE)
+                 TE = zeros(size(b));
+             end
++            if ~exist('fODF_reg', 'var')
++                fODF_reg = [];
++            end
+ 
+             LMAX=max(Lmax);
+             if LMAX==0, error('Lmax needs to be larger than 0 for fitting the fODF'), end
+@@ -635,6 +687,21 @@ classdef SMI
+                 end
+                 Kell=permute(Kell,[3 2 1]);
+ 
++                % Regularization of the deconvolution (default is none)
++                fODF_reg = SMI.fODF_RegularizationDefaults(fODF_reg,LMAX);
++                flag_reg = fODF_reg.flag_nonneg || fODF_reg.lambda_tikhonov>0;
++                if flag_reg
++                    % fODF amplitudes on a dense set of directions per unit plm.
++                    % plm are normalized (p_00=1), thus the SH coefficients of
++                    % the fODF are plm.*sqrt((2l+1)/(4*pi)) and the isotropic
++                    % part contributes a constant amplitude of 1/(4*pi)
++                    dirs_nonneg = SMI.GetUniformHemisphereDirs(fODF_reg.Ndirs);
++                    Ylm_nonneg = SMI.get_even_SH(dirs_nonneg,LMAX,CS_phase).*sqrt((2*L_all+1)/(4*pi));
++                    fODF_isotropic = Ylm_nonneg(:,1);
++                    Ylm_nonneg = Ylm_nonneg(:,2:end);
++                    reg_info = zeros(3,Nvoxels);
++                end
++
+                 % plm=zeros(LMAX*(LMAX+3)/2+1,Nvoxels);
+                 plm=zeros(LMAX*(LMAX+3)/2,Nvoxels);
+                 Nlm=2*(0:2:LMAX)+1;
+@@ -642,7 +709,18 @@ classdef SMI
+                     KltimesYlm=repelem(Kell(:,:,ii),Nlm,1)'.*(Y_LM_matrix.*N_l);
+                     % plm(:,ii)=KltimesYlm\dwi_norm(:,ii);
+                     dwi_norm_minus_spherical_mean = dwi_norm(:,ii)-KltimesYlm(:,1);
+-                    plm(:,ii)=KltimesYlm(:,2:end)\dwi_norm_minus_spherical_mean;
++                    if flag_reg
++                        [plm(:,ii),reg_info(:,ii)] = SMI.plm_regularized_deconvolution(...
++                            KltimesYlm(:,2:end),dwi_norm_minus_spherical_mean,Ylm_nonneg,fODF_isotropic,fODF_reg);
++                    else
++                        plm(:,ii)=KltimesYlm(:,2:end)\dwi_norm_minus_spherical_mean;
++                    end
++                end
++
++                if flag_reg
++                    fODF_reg.Niterations     = SMI.vectorize(reg_info(1,:),mask);
++                    fODF_reg.Nnegative_dirs  = SMI.vectorize(reg_info(2,:),mask);
++                    fODF_reg.flag_converged  = SMI.vectorize(reg_info(3,:),mask);
+                 end
+ 
+                 plm=SMI.vectorize(plm,mask);
+@@ -659,6 +737,189 @@ classdef SMI
+             end
+         end
+         % =================================================================
++        function reg = fODF_RegularizationDefaults(reg,Lmax)
++            % reg = fODF_RegularizationDefaults(reg,Lmax)
++            %
++            % Fills in the default values of the options controlling the
++            % regularization of the fODF deconvolution and precomputes the
++            % Tikhonov matrix. Both regularizers are disabled by default, so
++            % the deconvolution reduces to the unregularized LLS fit.
++            %
++            % NON-NEGATIVITY (constrained spherical deconvolution, Tournier et
++            % al., NeuroImage 2007). The fODF is first estimated with an
++            % unconstrained low order fit and then refined iteratively: at each
++            % iteration the directions where the fODF falls below a threshold
++            % are collected and a penalty on their amplitude is added to the
++            % least squares problem, until the set of such directions stops
++            % changing.
++            %
++            % reg.flag_nonneg       1 enables the non-negativity constraint (default 0)
++            % reg.lambda_nonneg     weight of the non-negativity block (default 1)
++            % reg.tau               directions where the fODF is below
++            %                       tau*mean(fODF) are penalized (default 0.1)
++            % reg.Niter             maximum number of iterations (default 50)
++            % reg.Ndirs             number of directions where non-negativity is
++            %                       imposed (default 300)
++            % reg.Lmax_init         Lmax of the initial unconstrained solution (default 4)
++            % reg.max_neg_fraction  if a larger fraction of the directions is
++            %                       negative the iterations are stopped (default 0.9)
++            %
++            % TIKHONOV. Adds lambda_tikhonov^2*||Gamma*plm||^2 to the least
++            % squares problem, which damps the high order coefficients that the
++            % kernel attenuates the most (Kell decays with ell).
++            %
++            % reg.lambda_tikhonov   weight of the Tikhonov block (default 0, off)
++            % reg.TikhonovMatrix    'identity' (default) or 'laplacebeltrami',
++            %                       the latter uses Gamma=diag(l(l+1)) normalized
++            %                       by its maximum value
++            %
++            % Both lambdas are dimensionless: the regularization blocks are
++            % rescaled by the root mean squared norm of the rows of the design
++            % matrix of each voxel.
++            %
++            if ~exist('reg', 'var') || isempty(reg)
++                reg = struct();
++            end
++            if ~isstruct(reg)
++                error('fODF regularization options must be provided as a structure')
++            end
++            default_reg = struct('flag_nonneg',0,'lambda_nonneg',1,'tau',0.1,'Niter',50,...
++                                 'Ndirs',300,'Lmax_init',4,'max_neg_fraction',0.9,...
++                                 'lambda_tikhonov',0,'TikhonovMatrix','identity');
++            fields = fieldnames(default_reg);
++            for ii=1:length(fields)
++                if ~isfield(reg,fields{ii}) || isempty(reg.(fields{ii}))
++                    reg.(fields{ii}) = default_reg.(fields{ii});
++                end
++            end
++            if reg.lambda_nonneg<0 || reg.lambda_tikhonov<0
++                error('Regularization weights must be non-negative')
++            end
++            if reg.Ndirs<10
++                error('At least 10 directions are needed for the non-negativity constraint')
++            end
++
++            % Precompute the Tikhonov matrix (only for ell>0, p_00 is fixed)
++            L_all = repelem(0:2:Lmax,2*(0:2:Lmax)+1);
++            L_rest = L_all(2:end);
++            switch lower(reg.TikhonovMatrix)
++                case 'identity'
++                    gamma_l = ones(size(L_rest));
++                case {'laplacebeltrami','laplace-beltrami','lb'}
++                    gamma_l = L_rest.*(L_rest+1);
++                    gamma_l = gamma_l/max(gamma_l);
++                otherwise
++                    error('TikhonovMatrix must be ''identity'' or ''laplacebeltrami''')
++            end
++            reg.Gamma = diag(gamma_l);
++            reg.init_mask = L_rest<=reg.Lmax_init;
++            if ~any(reg.init_mask)
++                error('Lmax_init is smaller than the lowest order of the fODF expansion')
++            end
++        end
++        % =================================================================
++        function [p,info] = plm_regularized_deconvolution(A,y,Ylm_nonneg,fODF_isotropic,reg)
++            % [p,info] = plm_regularized_deconvolution(A,y,Ylm_nonneg,fODF_isotropic,reg)
++            %
++            % Regularized spherical deconvolution for a single voxel. It solves
++            %
++            %   min_p ||A*p-y||^2 + lambda_t^2*||Gamma*p||^2 + lambda_n^2*||L*p+c||^2
++            %
++            % where the last term penalizes the fODF amplitude on the subset of
++            % directions where the fODF is negative (or below a small threshold),
++            % as in constrained spherical deconvolution (Tournier et al., 2007).
++            % The subset is updated iteratively until it does not change.
++            %
++            % A               [Ndwi x Nlm-1] design matrix (Kell*Ylm*N_l) for ell>0
++            % y               [Ndwi x 1] normalized signal minus its ell=0 prediction
++            % Ylm_nonneg      [Ndirs x Nlm-1] fODF amplitude per unit plm
++            % fODF_isotropic  [Ndirs x 1] amplitude of the (fixed) ell=0 term
++            % reg             options from SMI.fODF_RegularizationDefaults
++            %
++            % info = [Niterations; Ndirections constrained; converged flag]
++            %
++            Ncoeff = size(A,2);
++            info = [0;0;1];
++            if ~all(isfinite(A(:))) || ~all(isfinite(y))
++                p = nan(Ncoeff,1);
++                info(3) = 0;
++                return
++            end
++            % Scaling that makes the regularization weights dimensionless
++            scale_A = norm(A,'fro')/sqrt(size(A,1));
++            if ~isfinite(scale_A) || scale_A<eps
++                p = zeros(Ncoeff,1);
++                info(3) = 0;
++                return
++            end
++            if reg.lambda_tikhonov>0
++                Tik = (reg.lambda_tikhonov*scale_A)*reg.Gamma;
++            else
++                Tik = zeros(0,Ncoeff);
++            end
++            rhs_tik = zeros(size(Tik,1),1);
++
++            % Initial solution. If the non-negativity constraint is used, this
++            % is the low order unconstrained fit of Tournier et al. (2007),
++            % otherwise all the coefficients are estimated at once
++            if reg.flag_nonneg
++                id = reg.init_mask;
++            else
++                id = true(1,Ncoeff);
++            end
++            p = zeros(Ncoeff,1);
++            Tik_init = Tik(:,id);
++            if size(Tik,1)>0
++                Tik_init = Tik(id,id);
++            end
++            p(id) = [A(:,id); Tik_init]\[y; zeros(size(Tik_init,1),1)];
++
++            if ~reg.flag_nonneg
++                return
++            end
++
++            % Amplitude threshold from the initial fODF (Tournier et al., 2007)
++            threshold = reg.tau*mean(fODF_isotropic + Ylm_nonneg*p);
++            scale_Y = norm(Ylm_nonneg,'fro')/sqrt(size(Ylm_nonneg,1));
++            weight_nonneg = reg.lambda_nonneg*scale_A/scale_Y;
++            Ndirs = size(Ylm_nonneg,1);
++            neg_prev = [];
++            converged = 0;
++            neg = false(Ndirs,1);
++            for it = 1:reg.Niter
++                neg = (fODF_isotropic + Ylm_nonneg*p) < threshold;
++                if ~any(neg) || (it>1 && isequal(neg,neg_prev))
++                    % The set of constrained directions did not change
++                    converged = 1;
++                    break
++                end
++                if sum(neg) > reg.max_neg_fraction*Ndirs
++                    % Nothing meaningful left to constrain, keep last estimate
++                    break
++                end
++                L = weight_nonneg*Ylm_nonneg(neg,:);
++                p = [A; L; Tik]\[y; -weight_nonneg*fODF_isotropic(neg); rhs_tik];
++                neg_prev = neg;
++                info(1) = it;
++            end
++            info(2) = sum(neg);
++            info(3) = converged;
++        end
++        % =================================================================
++        function dirs = GetUniformHemisphereDirs(Ndirs)
++            % dirs = GetUniformHemisphereDirs(Ndirs)
++            %
++            % Deterministic set of [Ndirs x 3] nearly uniformly distributed unit
++            % vectors on the northern hemisphere (golden angle spiral). Even
++            % order spherical harmonics are antipodally symmetric, so covering
++            % one hemisphere is enough to control the fODF everywhere.
++            ii = (0:Ndirs-1)';
++            z = (ii+0.5)/Ndirs;
++            r = sqrt(max(1-z.^2,0));
++            phi = pi*(3-sqrt(5))*ii;
++            dirs = [r.*cos(phi), r.*sin(phi), z];
++        end
++        % =================================================================
+         function [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
+             % [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
+ 
+diff --git a/example_fODF_regularization.m b/example_fODF_regularization.m
+new file mode 100644
+index 0000000..511761f
+--- /dev/null
++++ b/example_fODF_regularization.m
+@@ -0,0 +1,130 @@
++% =========================================================================
++% Example: regularized fODF deconvolution in the SMI toolbox
++%
++% The fODF is obtained by deconvolving the SM kernel from the DWI, which is
++% an ill-conditioned problem: the kernel rotational invariants Kl decay
++% quickly with l, so the high order plm are dominated by noise and the
++% resulting fODF typically has large negative lobes.
++%
++% Two regularizers can be added to the deconvolution:
++%
++%   - Non-negativity, as in constrained spherical deconvolution
++%     (Tournier et al., NeuroImage 2007). The fODF amplitude is iteratively
++%     penalized on the directions where it becomes negative.
++%   - Tikhonov damping of the plm, which suppresses the coefficients that
++%     the kernel attenuates the most.
++%
++% This script builds a synthetic two-fiber voxel, generates its signal with
++% the SM forward model, and compares the deconvolution with and without
++% regularization. It requires no data and runs in a few seconds.
++%
++% By: Santiago Coelho
++% =========================================================================
++clear; close all
++% addpath('/Documents/SantiagoCoelho/Git/SMI')
++
++CS_phase = 1; D_FW = 3; Lmax = 6;
++L_all = repelem(0:2:Lmax,2*(0:2:Lmax)+1);
++
++% ---- Protocol: 3 shells with 64 directions each + 4 b0s ----------------
++Ndirs_shell = 64;
++dirs_shell = SMI.GetUniformHemisphereDirs(Ndirs_shell);
++bvals = [0 1 2 3]; % [ms/um^2]
++b = []; dirs = [];
++for ii = 1:length(bvals)
++    if bvals(ii)==0
++        b = [b zeros(1,4)]; dirs = [dirs; repmat([0 0 1],4,1)];
++    else
++        b = [b bvals(ii)*ones(1,Ndirs_shell)]; dirs = [dirs; dirs_shell];
++    end
++end
++beta = ones(size(b)); TE = zeros(size(b));
++Ndwi = length(b); Lmax_shells = Lmax*ones(1,length(bvals));
++
++% ---- Ground truth: two crossing fibers at 50 degrees --------------------
++% The fODF is a pair of smoothed delta functions, so it is non-negative and
++% its plm (in the normalized convention used by SMI, where p_00=1) are known
++fibers = [1 0 0; cosd(50) sind(50) 0]; weights = [0.6 0.4]; smoothing = 0.05;
++plm_SH = (weights*SMI.get_even_SH(fibers,Lmax,CS_phase)).*exp(-smoothing*L_all.*(L_all+1));
++plm_all = plm_SH./sqrt((2*L_all+1)/(4*pi));
++plm_true = plm_all(2:end);
++
++% ---- Kernel and noise-free signal --------------------------------------
++f = 0.6; Da = 2; Depar = 2; Deperp = 0.5; fw = 0; T2a = 1; T2e = 1;
++S = SMI.SM_wFW_b_beta_TE_RealSphHarm(f,Da,Depar,Deperp,1-f-fw,T2a,T2e,plm_true,b,dirs,beta,TE,CS_phase,D_FW)';
++kernel = reshape([f Da Depar Deperp fw T2a T2e],[1 1 1 7]);
++mask = true(1,1,1);
++
++% ---- Directions where the fODF is evaluated for the comparison ---------
++dirs_odf = SMI.GetUniformHemisphereDirs(500);
++Y_odf = SMI.get_even_SH(dirs_odf,Lmax,CS_phase).*sqrt((2*L_all+1)/(4*pi));
++fODF = @(plm) Y_odf(:,1) + Y_odf(:,2:end)*plm(:); % plm are normalized, p_00 contributes 1/(4*pi)
++negative_mass = @(plm) -sum(min(fODF(plm),0))/sum(abs(fODF(plm)));
++fODF_true = fODF(plm_true);
++
++% ---- Noise-free check: the deconvolution is exact ----------------------
++plm_hat = squeeze(SMI.get_plm_from_S_and_kernel(reshape(S,[1 1 1 Ndwi]),Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW))';
++fprintf('Noise free, unregularized: max|plm-plm_true| = %.2e\n\n',max(abs(plm_hat-plm_true)));
++
++% ---- Noisy comparison ---------------------------------------------------
++SNR = 30; Nrep = 40;
++rng(1)
++noise = randn(Nrep,Ndwi)/SNR;
++
++% Options of each deconvolution that is compared
++reg_tikhonov.lambda_tikhonov = 1;
++reg_nonneg.flag_nonneg = 1;
++reg_both.flag_nonneg = 1; reg_both.lambda_tikhonov = 0.3; reg_both.TikhonovMatrix = 'laplacebeltrami';
++configs = {[],reg_tikhonov,reg_nonneg,reg_both};
++names = {'unregularized  ','tikhonov       ','non-negativity ','nonneg+tikhonov'};
++
++fprintf('SNR = %d, %d noise realizations, Lmax = %d\n',SNR,Nrep,Lmax)
++fprintf('(negative mass is the fraction of the fODF absolute mass that is negative,\n')
++fprintf(' it is %.4f for the ground truth)\n\n',negative_mass(plm_true));
++fprintf('%s   RMSE(plm)   rel err fODF   negative mass\n',repmat(' ',1,15))
++plm_examples = zeros(length(configs),length(plm_true));
++for cc = 1:length(configs)
++    err = 0; err_odf = 0; negmass = 0;
++    for rr = 1:Nrep
++        dwi = reshape(S+noise(rr,:),[1 1 1 Ndwi]);
++        if isempty(configs{cc})
++            p = SMI.get_plm_from_S_and_kernel(dwi,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW);
++        else
++            p = SMI.get_plm_from_S_and_kernel(dwi,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW,configs{cc});
++        end
++        p = squeeze(p)';
++        err = err + norm(p-plm_true)^2;
++        err_odf = err_odf + norm(fODF(p)-fODF_true)^2/norm(fODF_true)^2;
++        negmass = negmass + negative_mass(p);
++        if rr==1, plm_examples(cc,:) = p; end
++    end
++    fprintf('%s   %9.4f   %11.4f   %13.4f\n',names{cc},sqrt(err/Nrep),sqrt(err_odf/Nrep),negmass/Nrep);
++end
++
++% ---- Plot one realization along the plane containing both fibers -------
++phi = linspace(0,2*pi,360)';
++dirs_plane = [cos(phi) sin(phi) zeros(size(phi))];
++Y_plane = SMI.get_even_SH(dirs_plane,Lmax,CS_phase).*sqrt((2*L_all+1)/(4*pi));
++amp = @(plm) Y_plane(:,1) + Y_plane(:,2:end)*plm(:);
++figure('Color','w'), hold on
++plot(phi*180/pi,amp(plm_true),'k','LineWidth',2)
++for cc = 1:length(configs)
++    plot(phi*180/pi,amp(plm_examples(cc,:)),'LineWidth',1.2)
++end
++plot(phi*180/pi,zeros(size(phi)),'k--')
++xlabel('angle in the fiber plane [degrees]'), ylabel('fODF')
++legend(['ground truth',names],'Location','best'), box on
++title('fODF along the plane containing both fibers (single noise realization)')
++
++% =========================================================================
++% Usage inside SMI.fit:
++%
++% options.flag_fit_fODF = 1;
++% options.fODF_regularization.flag_nonneg = 1;
++% options.fODF_regularization.lambda_tikhonov = 0.3;
++% [out] = SMI.fit(dwi,options);
++%
++% out.fODF_regularization keeps the options that were used together with the
++% number of iterations, the number of constrained directions, and a
++% convergence flag for each voxel.
++% =========================================================================
+-- 
+2.43.0
+
