@@ -152,6 +152,37 @@ The code provides some additional flexibility:
 - Variable number of compartments: 'IAS', 'EAS', 'FW'. _This will be extended but at the moment the only two options are {'IAS', 'EAS'} (default) or {'IAS', 'EAS', 'FW'}._
 - User-defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
+- Regularization (non-negativity and Tikhonov) of the fODF deconvolution, see below.
+
+
+### Regularized fODF deconvolution
+Once the kernel is known, the fODF spherical harmonic coefficients `plm` are obtained by deconvolving the kernel from the DWI. This is an ill-conditioned problem: the kernel rotational invariants `Kl` decay quickly with `l`, so the high order `plm` are dominated by noise and the estimated fODF usually has large negative lobes. Two optional regularizers are available (both are disabled by default, in which case the deconvolution is the usual unregularized least squares fit):
+
+- **Non-negativity**, as in constrained spherical deconvolution ([Tournier et al., NeuroImage 2007](https://doi.org/10.1016/j.neuroimage.2007.02.016)). The fODF is first estimated with a low order unconstrained fit and then refined: at every iteration the directions where the fODF falls below `tau*mean(fODF)` are collected and a penalty on their amplitude is added to the least squares problem, until that set of directions stops changing (typically 4-6 iterations).
+- **Tikhonov**, which adds `lambda_tikhonov^2*||Gamma*plm||^2` and damps the coefficients that the kernel attenuates the most. `Gamma` is either the identity or the Laplace-Beltrami matrix `diag(l(l+1))` (normalized by its maximum value), which penalizes high orders more strongly.
+
+Both weights are dimensionless (the regularization blocks are rescaled by the norm of the rows of the design matrix of each voxel), so the same value is meaningful across voxels and protocols. Values around 1 are a reasonable starting point for both, weights below ~0.1 have a negligible effect.
+
+```
+options.flag_fit_fODF = 1;
+
+% Non-negativity constraint (CSD-like)
+options.fODF_regularization.flag_nonneg     = 1;    % default 0
+options.fODF_regularization.lambda_nonneg   = 1;    % default 1
+options.fODF_regularization.tau             = 0.1;  % default 0.1
+options.fODF_regularization.Ndirs           = 300;  % default 300
+options.fODF_regularization.Niter           = 50;   % default 50 (max)
+options.fODF_regularization.Lmax_init       = 4;    % default 4
+
+% Tikhonov damping
+options.fODF_regularization.lambda_tikhonov = 0.3;         % default 0 (off)
+options.fODF_regularization.TikhonovMatrix  = 'identity';  % or 'laplacebeltrami'
+
+[out] = SMI.fit(dwi,options);
+```
+`out.fODF_regularization` returns the options that were used together with the number of iterations, the number of constrained directions, and a convergence flag for each voxel.
+
+The script `example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.19 (non-negativity), and 0.19 (both), while the negative mass of the fODF drops from 0.16 to 0.03.
 
 
 ## Useful tips
