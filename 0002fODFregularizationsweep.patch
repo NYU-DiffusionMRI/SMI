@@ -1,0 +1,448 @@
+From aa5dc8dbd250aab03d95af447beed49b6b1d66fa Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 26 Jul 2026 20:42:14 +0000
+Subject: [PATCH] Add a parameter sweep for the fODF deconvolution
+ regularization
+
+The regularization weights suggested in the documentation were plausible
+round numbers, not measured ones. This adds the simulation that measures
+them and updates the documentation with its result.
+
+example_fODF_regularization_sweep.m estimates the fODF of synthetic two
+fiber voxels whose ground truth plm are known exactly, over crossing
+angles of 40, 60 and 90 degrees and SNR of 20, 30 and 50 with 30 noise
+realizations each, and scores the estimate against that ground truth.
+The sweep is staged: lambda_nonneg against lambda_tikhonov jointly, then
+tau, then Lmax_init, then the two Tikhonov matrices. The score minimized
+is the relative L2 error of the fODF over the sphere, reported together
+with the RMSE of the plm, the negative mass, and the mean angle between
+the true fiber directions and the closest peak of the estimate, which is
+the quantity tractography consumes.
+
+All the deconvolutions of one parameter setting are batched into a
+single call to get_plm_from_S_and_kernel by stacking the noise
+realizations along the first image dimension. That is about three times
+faster than one call per realization and gives identical results.
+
+The result is that the non-negativity weight wants to be considerably
+larger than the 1 that was suggested: the error falls monotonically from
+lambda_nonneg 1 to 10 and rises again after it (0.105 at 10, 0.133 at
+30, 0.417 at 100), so 10 is an interior optimum. tau = 0.1 and
+Lmax_init = 4 are confirmed. The Laplace-Beltrami matrix is slightly
+better than the identity once its weight is re-optimized. Against the
+previously suggested settings the relative fODF error drops from 0.199
+to 0.103 and the negative mass from 0.031 to 0.004.
+
+The scoring is a separate file, fODF_regularization_score.m, rather than
+a local function, so that the sweep also runs in GNU Octave, which
+cannot call functions defined at the end of a script.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DPJMgJKrAuvxjsXupa1WpJ
+---
+ README.md                           |  25 ++-
+ example_fODF_regularization_sweep.m | 266 ++++++++++++++++++++++++++++
+ fODF_regularization_score.m         |  63 +++++++
+ 3 files changed, 350 insertions(+), 4 deletions(-)
+ create mode 100644 example_fODF_regularization_sweep.m
+ create mode 100644 fODF_regularization_score.m
+
+diff --git a/README.md b/README.md
+index 02f7b6b..9f44fff 100644
+--- a/README.md
++++ b/README.md
+@@ -161,22 +161,22 @@ Once the kernel is known, the fODF spherical harmonic coefficients `plm` are obt
+ - **Non-negativity**, as in constrained spherical deconvolution ([Tournier et al., NeuroImage 2007](https://doi.org/10.1016/j.neuroimage.2007.02.016)). The fODF is first estimated with a low order unconstrained fit and then refined: at every iteration the directions where the fODF falls below `tau*mean(fODF)` are collected and a penalty on their amplitude is added to the least squares problem, until that set of directions stops changing (typically 4-6 iterations).
+ - **Tikhonov**, which adds `lambda_tikhonov^2*||Gamma*plm||^2` and damps the coefficients that the kernel attenuates the most. `Gamma` is either the identity or the Laplace-Beltrami matrix `diag(l(l+1))` (normalized by its maximum value), which penalizes high orders more strongly.
+ 
+-Both weights are dimensionless (the regularization blocks are rescaled by the norm of the rows of the design matrix of each voxel), so the same value is meaningful across voxels and protocols. Values around 1 are a reasonable starting point for both, weights below ~0.1 have a negligible effect.
++Both weights are dimensionless (the regularization blocks are rescaled by the norm of the rows of the design matrix of each voxel), so the same value is meaningful across voxels and protocols. Weights below ~0.1 have a negligible effect.
+ 
+ ```
+ options.flag_fit_fODF = 1;
+ 
+ % Non-negativity constraint (CSD-like)
+ options.fODF_regularization.flag_nonneg     = 1;    % default 0
+-options.fODF_regularization.lambda_nonneg   = 1;    % default 1
++options.fODF_regularization.lambda_nonneg   = 10;   % default 1
+ options.fODF_regularization.tau             = 0.1;  % default 0.1
+ options.fODF_regularization.Ndirs           = 300;  % default 300
+ options.fODF_regularization.Niter           = 50;   % default 50 (max)
+ options.fODF_regularization.Lmax_init       = 4;    % default 4
+ 
+ % Tikhonov damping
+-options.fODF_regularization.lambda_tikhonov = 0.3;         % default 0 (off)
+-options.fODF_regularization.TikhonovMatrix  = 'identity';  % or 'laplacebeltrami'
++options.fODF_regularization.lambda_tikhonov = 1;                  % default 0 (off)
++options.fODF_regularization.TikhonovMatrix  = 'laplacebeltrami';  % or 'identity'
+ 
+ [out] = SMI.fit(dwi,options);
+ ```
+@@ -187,6 +187,23 @@ The script `example_fODF_regularization.m` compares these options on a synthetic
+ The script also plots the resulting fODFs. In 2D it shows the amplitude along the plane containing both fibers, both as a signed profile (where the spurious negative lobes are easiest to see) and as a polar shape. In 3D it draws one glyph per deconvolution, with the radius equal to the fODF amplitude, the surface coloured by orientation, and the negative part of the fODF overlaid as a translucent red surface at radius `|fODF|` instead of being clipped away, so that what the non-negativity constraint removes is visible. All glyphs share a common radial scale, so they can be compared directly.
+ 
+ 
++#### Choosing the regularization parameters
++The weights, `tau` and `Lmax_init` suggested above are not guesses, they are the optimum of a sweep (`Ndirs` and `Niter` were not swept: they control cost and the iteration limit, not the quality of the solution). `example_fODF_regularization_sweep.m` (which also needs no data, and uses `fODF_regularization_score.m`) estimates the fODF of synthetic two-fiber voxels whose ground truth `plm` are known exactly, over crossing angles of 40, 60 and 90 degrees and SNR of 20, 30 and 50, with 30 noise realizations each, and scores the result against that ground truth. It sweeps `lambda_nonneg` against `lambda_tikhonov` jointly, then `tau`, then `Lmax_init`, then the two Tikhonov matrices. The score being minimized is the relative L2 error of the fODF over the sphere; the RMSE of the `plm`, the negative mass, and the mean angle between the true fiber directions and the closest peak of the estimated fODF are reported alongside it.
++
++On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directions each, Lmax = 6):
++
++| | rel err fODF | RMSE(plm) | negative mass | peak error |
++|---|---|---|---|---|
++| unregularized | 0.615 | 0.324 | 0.159 | 12.0 deg |
++| `lambda_nonneg=1`, `lambda_tikhonov=0.3` (identity) | 0.199 | 0.110 | 0.031 | 9.3 deg |
++| `lambda_nonneg=10`, `lambda_tikhonov=0.3` (identity) | 0.105 | 0.064 | 0.004 | 8.2 deg |
++| `lambda_nonneg=10`, `lambda_tikhonov=1` (Laplace-Beltrami) | **0.103** | 0.062 | 0.004 | 8.2 deg |
++
++The main result is that the non-negativity weight wants to be considerably larger than 1. The error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum and not an edge of the grid: past it the penalty rows start to dominate the data. `tau` = 0.1 and `Lmax_init` = 4, which were the original defaults, are both confirmed as optima. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight.
++
++The best amount of Tikhonov damping depends on the noise, as expected: at SNR 20 the sweep prefers `lambda_tikhonov` = 0 (the non-negativity constraint alone), while at SNR 30 and 50 it prefers 0.3. The non-negativity weight stays at 10 across all three. If your protocol differs substantially from the one above, rerun the sweep with the protocol block edited rather than reusing these numbers.
++
++
+ ## Useful tips
+ The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
+ - For conventional 2-shell datasets (b=1000,2000 s/mm^2) set 'options.compartments' to {'IAS', 'EAS'} (no FW compartment).
+diff --git a/example_fODF_regularization_sweep.m b/example_fODF_regularization_sweep.m
+new file mode 100644
+index 0000000..97df6e7
+--- /dev/null
++++ b/example_fODF_regularization_sweep.m
+@@ -0,0 +1,266 @@
++% =========================================================================
++% Example: choosing the fODF deconvolution regularization parameters
++%
++% example_fODF_regularization.m compares a few fixed settings. This script
++% sweeps them, so that the values in the documentation are measured rather
++% than guessed, and so that they can be re-measured for a different
++% protocol by editing the protocol block below.
++%
++% The fODF is estimated from synthetic two-fiber voxels whose ground truth
++% plm are known exactly, over a range of crossing angles and SNRs, and the
++% estimate is scored against that ground truth. The sweep is staged:
++%
++%   1. joint grid over lambda_nonneg x lambda_tikhonov
++%   2. tau, at the best point of that grid
++%   3. Lmax_init, at the best point of that grid
++%   4. identity vs Laplace-Beltrami Tikhonov matrix
++%
++% Scores (all averaged over crossing angles, SNRs and noise realizations):
++%
++%   rel err fODF   relative L2 error of the fODF over the sphere. This is
++%                  the primary score: it is what "reconstructs the fODF
++%                  similar to the ground truth" means, and it is
++%                  dimensionless.
++%   RMSE(plm)      error of the coefficients themselves
++%   negative mass  fraction of the absolute mass of the fODF that is
++%                  negative, i.e. how unphysical the estimate is
++%   peak error     mean angle between each true fiber direction and the
++%                  closest peak of the estimated fODF. This is the
++%                  quantity tractography actually consumes.
++%
++% Scoring lives in fODF_regularization_score.m (a separate file rather
++% than a local function, so that the script also runs in GNU Octave).
++%
++% All the deconvolutions for one parameter setting are batched into a
++% single call to SMI.get_plm_from_S_and_kernel by stacking the noise
++% realizations along the first image dimension, which is much faster than
++% calling it once per realization and gives bit-identical results.
++%
++% Requires no data. Runtime is a few minutes.
++%
++% By: Santiago Coelho
++% =========================================================================
++clear; close all
++
++CS_phase = 1; D_FW = 3; Lmax = 6;
++L_all = repelem(0:2:Lmax,2*(0:2:Lmax)+1);
++L_rest = L_all(2:end);
++
++% ---- Protocol: 3 shells with 64 directions each + 4 b0s ----------------
++Ndirs_shell = 64;
++dirs_shell = SMI.GetUniformHemisphereDirs(Ndirs_shell);
++bvals = [0 1 2 3]; % [ms/um^2]
++b = []; dirs = [];
++for ii = 1:length(bvals)
++    if bvals(ii)==0
++        b = [b zeros(1,4)]; dirs = [dirs; repmat([0 0 1],4,1)];
++    else
++        b = [b bvals(ii)*ones(1,Ndirs_shell)]; dirs = [dirs; dirs_shell];
++    end
++end
++beta = ones(size(b)); TE = zeros(size(b));
++Ndwi = length(b); Lmax_shells = Lmax*ones(1,length(bvals));
++
++% ---- Kernel ------------------------------------------------------------
++f = 0.6; Da = 2; Depar = 2; Deperp = 0.5; fw = 0; T2a = 1; T2e = 1;
++kernel_1vox = reshape([f Da Depar Deperp fw T2a T2e],[1 1 1 7]);
++
++% ---- Conditions the parameters have to work across ---------------------
++% A single crossing angle at a single SNR would give an optimum tuned to
++% that one case. Averaging over a range gives settings that are not.
++angles    = [40 60 90];   % crossing angle [degrees]
++SNRs      = [20 30 50];
++weights   = [0.6 0.4];    % volume fractions of the two fibers
++smoothing = 0.05;         % makes the ground truth fODF non-negative
++Nrep      = 30;           % noise realizations per condition
++
++rng_seed = 1;
++if exist('rng','builtin') || exist('rng','file'), rng(rng_seed), else, randn('seed',rng_seed); end
++
++% ---- Build every voxel of the experiment once --------------------------
++Ncond = numel(angles)*numel(SNRs);
++Nvox  = Ncond*Nrep;
++DWI   = zeros(Nvox,Ndwi);
++PLM_T = zeros(Nvox,numel(L_rest));
++COND  = zeros(Nvox,2);          % [angle index, SNR index]
++FIB   = cell(numel(angles),1);
++vv = 0;
++for ia = 1:numel(angles)
++    fibers = [1 0 0; cosd(angles(ia)) sind(angles(ia)) 0];
++    FIB{ia} = fibers;
++    plm_SH  = (weights*SMI.get_even_SH(fibers,Lmax,CS_phase)).*exp(-smoothing*L_all.*(L_all+1));
++    plm_all = plm_SH./sqrt((2*L_all+1)/(4*pi));
++    plm_a   = plm_all(2:end);
++    S_a = SMI.SM_wFW_b_beta_TE_RealSphHarm(f,Da,Depar,Deperp,1-f-fw,T2a,T2e, ...
++              plm_a,b,dirs,beta,TE,CS_phase,D_FW)';
++    for is = 1:numel(SNRs)
++        for rr = 1:Nrep
++            vv = vv+1;
++            DWI(vv,:)   = S_a + randn(1,Ndwi)/SNRs(is);
++            PLM_T(vv,:) = plm_a;
++            COND(vv,:)  = [ia is];
++        end
++    end
++end
++dwi4  = reshape(DWI,[Nvox 1 1 Ndwi]);
++kernel = repmat(kernel_1vox,[Nvox 1 1 1]);
++mask   = true(Nvox,1,1);
++fprintf('Sweep over %d conditions x %d noise realizations = %d voxels per setting\n', ...
++    Ncond, Nrep, Nvox);
++fprintf('  crossing angles: %s deg | SNR: %s | Lmax = %d\n\n', ...
++    mat2str(angles), mat2str(SNRs), Lmax);
++
++% ---- Directions used to score the fODF ---------------------------------
++dirs_odf = SMI.GetUniformHemisphereDirs(500);
++Y_odf    = SMI.get_even_SH(dirs_odf,Lmax,CS_phase).*sqrt((2*L_all+1)/(4*pi));
++AMP_T    = Y_odf(:,1) + Y_odf(:,2:end)*PLM_T.';        % [Ndirs x Nvox]
++nrm_T    = sqrt(sum(AMP_T.^2,1));
++
++% Neighbour list on the scoring directions, for peak detection
++nNeighbors = 8;
++G = abs(dirs_odf*dirs_odf.'); G(1:size(G,1)+1:end) = -Inf;
++[~,ordG] = sort(G,2,'descend');
++NB = ordG(:,1:nNeighbors);
++
++% =========================================================================
++%  STAGE 1: joint grid, lambda_nonneg x lambda_tikhonov
++% =========================================================================
++lam_nn  = [0 0.3 1 3 10 30 100]; % 0 = non-negativity constraint disabled
++lam_tik = [0 0.1 0.3 1 3 10];  % 0 = Tikhonov disabled
++
++E_odf = nan(numel(lam_nn),numel(lam_tik));
++E_plm = nan(size(E_odf)); E_neg = nan(size(E_odf)); E_pk = nan(size(E_odf));
++fprintf('STAGE 1: lambda_nonneg x lambda_tikhonov  (primary score: rel err fODF)\n');
++fprintf('%12s','lam_nn\\lam_tik');
++fprintf('%9.3g',lam_tik); fprintf('\n');
++for in = 1:numel(lam_nn)
++    fprintf('%12.3g',lam_nn(in));
++    for it = 1:numel(lam_tik)
++        reg = struct();
++        reg.flag_nonneg     = double(lam_nn(in) > 0);
++        if reg.flag_nonneg, reg.lambda_nonneg = lam_nn(in); end
++        reg.lambda_tikhonov = lam_tik(it);
++        [E_odf(in,it),E_plm(in,it),E_neg(in,it),E_pk(in,it)] = ...
++            fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
++                          PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB);
++        fprintf('%9.4f',E_odf(in,it));
++    end
++    fprintf('\n');
++end
++[bestE,ix] = min(E_odf(:));
++[in_b,it_b] = ind2sub(size(E_odf),ix);
++fprintf('\n  best: lambda_nonneg = %g, lambda_tikhonov = %g  -> rel err fODF %.4f\n', ...
++    lam_nn(in_b), lam_tik(it_b), bestE);
++fprintf('  at that point: RMSE(plm) %.4f | negative mass %.4f | peak error %.2f deg\n\n', ...
++    E_plm(in_b,it_b), E_neg(in_b,it_b), E_pk(in_b,it_b));
++
++best.flag_nonneg     = double(lam_nn(in_b) > 0);
++best.lambda_nonneg   = max(lam_nn(in_b),1);
++best.lambda_tikhonov = lam_tik(it_b);
++
++% =========================================================================
++%  STAGE 2: tau
++% =========================================================================
++taus = [0.02 0.05 0.1 0.2 0.4];
++E_tau = nan(size(taus));
++fprintf('STAGE 2: tau (at the stage 1 optimum)\n');
++for k = 1:numel(taus)
++    reg = best; reg.tau = taus(k);
++    E_tau(k) = fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
++                             PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB);
++    fprintf('  tau = %5.2f -> rel err fODF %.4f\n', taus(k), E_tau(k));
++end
++[~,k_b] = min(E_tau); best.tau = taus(k_b);
++fprintf('  best tau = %g\n\n', best.tau);
++
++% =========================================================================
++%  STAGE 3: Lmax_init
++% =========================================================================
++Lin = 2:2:Lmax;
++E_lin = nan(size(Lin));
++fprintf('STAGE 3: Lmax_init (at the stage 1-2 optimum)\n');
++for k = 1:numel(Lin)
++    reg = best; reg.Lmax_init = Lin(k);
++    E_lin(k) = fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
++                             PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB);
++    fprintf('  Lmax_init = %d -> rel err fODF %.4f\n', Lin(k), E_lin(k));
++end
++[~,k_b] = min(E_lin); best.Lmax_init = Lin(k_b);
++fprintf('  best Lmax_init = %d\n\n', best.Lmax_init);
++
++% =========================================================================
++%  STAGE 4: Tikhonov matrix
++% =========================================================================
++mats = {'identity','laplacebeltrami'};
++fprintf('STAGE 4: Tikhonov matrix (at the optimum, re-optimizing lambda_tikhonov)\n');
++E_mat = nan(numel(mats),numel(lam_tik));
++for m = 1:numel(mats)
++    for it = 1:numel(lam_tik)
++        reg = best; reg.TikhonovMatrix = mats{m}; reg.lambda_tikhonov = lam_tik(it);
++        E_mat(m,it) = fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
++                                    PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB);
++    end
++    [em,ib] = min(E_mat(m,:));
++    fprintf('  %-16s best lambda_tikhonov = %-5g -> rel err fODF %.4f\n', mats{m}, lam_tik(ib), em);
++end
++[~,m_b] = min(min(E_mat,[],2));
++[~,it_b2] = min(E_mat(m_b,:));
++best.TikhonovMatrix = mats{m_b}; best.lambda_tikhonov = lam_tik(it_b2);
++
++% =========================================================================
++%  Per SNR optimum: the best amount of regularization depends on the noise
++% =========================================================================
++fprintf('\nPer-SNR optimum over the stage 1 grid (rel err fODF)\n');
++for is = 1:numel(SNRs)
++    sel = COND(:,2)==is;
++    Es = nan(numel(lam_nn),numel(lam_tik));
++    for in = 1:numel(lam_nn)
++        for it = 1:numel(lam_tik)
++            reg = struct();
++            reg.flag_nonneg = double(lam_nn(in) > 0);
++            if reg.flag_nonneg, reg.lambda_nonneg = lam_nn(in); end
++            reg.lambda_tikhonov = lam_tik(it);
++            Es(in,it) = fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
++                                      PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB,sel);
++        end
++    end
++    [e,ix] = min(Es(:)); [ii,jj] = ind2sub(size(Es),ix);
++    fprintf('  SNR %2d: lambda_nonneg = %-4g lambda_tikhonov = %-4g -> %.4f\n', ...
++        SNRs(is), lam_nn(ii), lam_tik(jj), e);
++end
++
++% =========================================================================
++%  Recommendation
++% =========================================================================
++fprintf('\n==================== RECOMMENDED ====================\n');
++fprintf('options.fODF_regularization.flag_nonneg      = %d;\n', best.flag_nonneg);
++fprintf('options.fODF_regularization.lambda_nonneg    = %g;\n', best.lambda_nonneg);
++fprintf('options.fODF_regularization.tau              = %g;\n', best.tau);
++fprintf('options.fODF_regularization.Lmax_init        = %d;\n', best.Lmax_init);
++fprintf('options.fODF_regularization.lambda_tikhonov  = %g;\n', best.lambda_tikhonov);
++fprintf('options.fODF_regularization.TikhonovMatrix   = ''%s'';\n', best.TikhonovMatrix);
++fprintf('=====================================================\n');
++
++% ---- Plots -------------------------------------------------------------
++figure('Color','w','Name','fODF regularization sweep','Position',[80 80 1250 420])
++
++subplot(1,3,1)
++imagesc(E_odf), colorbar, hold on
++plot(it_b,in_b,'w*','MarkerSize',12,'LineWidth',1.5)
++set(gca,'XTick',1:numel(lam_tik),'XTickLabel',lam_tik, ...
++        'YTick',1:numel(lam_nn), 'YTickLabel',lam_nn)
++xlabel('\lambda_{tikhonov}'), ylabel('\lambda_{nonneg}  (0 = off)')
++title('rel err fODF (lower is better)')
++
++subplot(1,3,2), hold on
++plot(taus,E_tau,'o-','LineWidth',1.4)
++plot(best.tau,min(E_tau),'r*','MarkerSize',12)
++xlabel('\tau'), ylabel('rel err fODF'), box on, grid on
++title('tau, at the stage 1 optimum')
++
++subplot(1,3,3), hold on
++plot(lam_tik,E_mat(1,:),'o-','LineWidth',1.4)
++plot(lam_tik,E_mat(2,:),'s-','LineWidth',1.4)
++set(gca,'XScale','log')
++xlabel('\lambda_{tikhonov}'), ylabel('rel err fODF'), box on, grid on
++legend(mats,'Location','best'), title('Tikhonov matrix')
+diff --git a/fODF_regularization_score.m b/fODF_regularization_score.m
+new file mode 100644
+index 0000000..488c516
+--- /dev/null
++++ b/fODF_regularization_score.m
+@@ -0,0 +1,63 @@
++function [e_odf,e_plm,e_neg,e_peak] = fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask, ...
++                                     b,beta,TE,dirs,CS_phase,D_FW,PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB,sel)
++% [e_odf,e_plm,e_neg,e_peak] = fODF_regularization_score(reg,dwi4,...)
++%
++% Scores one fODF deconvolution regularization setting against a known
++% ground truth. Used by example_fODF_regularization_sweep.m.
++%
++% Every voxel of the experiment is deconvolved in a single call, with the
++% noise realizations stacked along the first image dimension. That is much
++% faster than one call per realization and gives identical results.
++%
++% reg          options passed to SMI.get_plm_from_S_and_kernel
++% dwi4         [Nvox 1 1 Ndwi] synthetic signals
++% PLM_T        [Nvox x Nlm-1] ground truth plm of each voxel
++% Y_odf        [Ndirs x Nlm] SH basis, already scaled by sqrt((2l+1)/(4pi))
++% AMP_T,nrm_T  ground truth fODF amplitudes and their L2 norms
++% dirs_odf,NB  scoring directions and their nearest neighbour indices
++% COND         [Nvox x 2] condition index of each voxel [angle, SNR]
++% FIB          cell array, FIB{ia} is the [Nfib x 3] true fiber directions
++% sel          optional logical mask selecting a subset of the voxels
++%
++% e_odf   relative L2 error of the fODF over the sphere (primary score)
++% e_plm   RMSE of the plm coefficients
++% e_neg   fraction of the absolute fODF mass that is negative
++% e_peak  mean angle [deg] from each true fiber to the closest fODF peak
++%
++P = squeeze(SMI.get_plm_from_S_and_kernel(dwi4,Lmax_shells,kernel,mask, ...
++                                          b,beta,TE,dirs,CS_phase,D_FW,reg));
++if nargin < 20 || isempty(sel), sel = true(size(P,1),1); end
++P    = P(sel,:);
++PT   = PLM_T(sel,:);
++AT   = AMP_T(:,sel);
++nT   = nrm_T(sel);
++cond = COND(sel,:);
++
++AMP = Y_odf(:,1) + Y_odf(:,2:end)*P.';                  % [Ndirs x Nvox]
++
++e_odf = mean(sqrt(sum((AMP-AT).^2,1))./nT);
++e_plm = sqrt(mean(sum((P-PT).^2,2)));
++e_neg = mean(-sum(min(AMP,0),1)./sum(abs(AMP),1));
++
++if nargout < 4, e_peak = NaN; return, end
++
++% Peak angular error. Peaks are local maxima above a quarter of the voxel
++% maximum, which keeps the genuine lobes and drops the SH truncation
++% ripples (a band limited fODF has a local maximum on every ripple).
++A    = AMP.';                                           % [Nvox x Ndirs]
++isPk = true(size(A));
++for j = 1:size(NB,2)
++    isPk = isPk & (A > A(:,NB(:,j)));
++end
++isPk = isPk & (A > max(0.25*max(A,[],2),0));
++
++ang_err = nan(size(A,1),1);
++for v = 1:size(A,1)
++    pk = dirs_odf(isPk(v,:),:);
++    if isempty(pk), continue, end
++    fibv = FIB{cond(v,1)};
++    d = acosd(min(abs(fibv*pk.'),1));                   % even SH are antipodal
++    ang_err(v) = mean(min(d,[],2));
++end
++e_peak = mean(ang_err(~isnan(ang_err)));
++end
+-- 
+2.43.0
+
