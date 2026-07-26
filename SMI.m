@@ -137,7 +137,9 @@ classdef SMI
     %                     amplitude is iteratively penalized on the directions
     %                     where it is negative (default 0)
     % options.fODF_regularization.lambda_nonneg weight of the non-negativity
-    %                     penalty (default 1, dimensionless)
+    %                     penalty (default 10, dimensionless). This default
+    %                     is the optimum measured by
+    %                     example_fODF_regularization_sweep.m
     % options.fODF_regularization.tau directions where the fODF is below
     %                     tau*mean(fODF) are penalized (default 0.1)
     % options.fODF_regularization.Ndirs number of directions where the
@@ -754,7 +756,11 @@ classdef SMI
             % changing.
             %
             % reg.flag_nonneg       1 enables the non-negativity constraint (default 0)
-            % reg.lambda_nonneg     weight of the non-negativity block (default 1)
+            % reg.lambda_nonneg     weight of the non-negativity block (default 10,
+            %                       the optimum measured by
+            %                       example_fODF_regularization_sweep.m: the error
+            %                       falls from lambda_nonneg 1 to 10 and rises
+            %                       again after it)
             % reg.tau               directions where the fODF is below
             %                       tau*mean(fODF) are penalized (default 0.1)
             % reg.Niter             maximum number of iterations (default 50)
@@ -783,7 +789,7 @@ classdef SMI
             if ~isstruct(reg)
                 error('fODF regularization options must be provided as a structure')
             end
-            default_reg = struct('flag_nonneg',0,'lambda_nonneg',1,'tau',0.1,'Niter',50,...
+            default_reg = struct('flag_nonneg',0,'lambda_nonneg',10,'tau',0.1,'Niter',50,...
                                  'Ndirs',300,'Lmax_init',4,'max_neg_fraction',0.9,...
                                  'lambda_tikhonov',0,'TikhonovMatrix','identity');
             fields = fieldnames(default_reg);
