@@ -182,7 +182,7 @@ options.fODF_regularization.TikhonovMatrix  = 'laplacebeltrami';  % or 'identity
 ```
 `out.fODF_regularization` returns the options that were used together with the number of iterations, the number of constrained directions, and a convergence flag for each voxel.
 
-The script `example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.19 (non-negativity), and 0.19 (both), while the negative mass of the fODF drops from 0.16 to 0.03.
+The script `example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.10 (non-negativity), and 0.10 (both), while the negative mass of the fODF drops from 0.16 to 0.004, which is the negative mass of the ground truth fODF itself (0.0034).
 
 The script also plots the resulting fODFs. In 2D it shows the amplitude along the plane containing both fibers, both as a signed profile (where the spurious negative lobes are easiest to see) and as a polar shape. In 3D it draws one glyph per deconvolution, with the radius equal to the fODF amplitude, the surface coloured by orientation, and the negative part of the fODF overlaid as a translucent red surface at radius `|fODF|` instead of being clipped away, so that what the non-negativity constraint removes is visible. All glyphs share a common radial scale, so they can be compared directly.
 
@@ -195,11 +195,13 @@ On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directio
 | | rel err fODF | RMSE(plm) | negative mass | peak error |
 |---|---|---|---|---|
 | unregularized | 0.615 | 0.324 | 0.159 | 12.0 deg |
-| `lambda_nonneg=1`, `lambda_tikhonov=0.3` (identity) | 0.199 | 0.110 | 0.031 | 9.3 deg |
+| `lambda_nonneg=1`, `lambda_tikhonov=0.3` (identity) — the old default | 0.199 | 0.110 | 0.031 | 9.3 deg |
 | `lambda_nonneg=10`, `lambda_tikhonov=0.3` (identity) | 0.105 | 0.064 | 0.004 | 8.2 deg |
 | `lambda_nonneg=10`, `lambda_tikhonov=1` (Laplace-Beltrami) | **0.103** | 0.062 | 0.004 | 8.2 deg |
 
-The main result is that the non-negativity weight wants to be considerably larger than 1. The error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum and not an edge of the grid: past it the penalty rows start to dominate the data. `tau` = 0.1 and `Lmax_init` = 4, which were the original defaults, are both confirmed as optima. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight.
+The main result is that the non-negativity weight wants to be considerably larger than 1. The error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum and not an edge of the grid: past it the penalty rows start to dominate the data. **The default of `lambda_nonneg` has therefore been changed from 1 to 10.** `tau` = 0.1 and `Lmax_init` = 4, which were the original defaults, are both confirmed as optima and are unchanged. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight; the default matrix is left at `identity` so that a given `lambda_tikhonov` keeps meaning what it used to.
+
+Changing that default does not affect anyone who has not opted in: `flag_nonneg` and `lambda_tikhonov` still default to 0, so a fit that does not set `options.fODF_regularization` is bit-identical to before (verified, difference exactly 0).
 
 The best amount of Tikhonov damping depends on the noise, as expected: at SNR 20 the sweep prefers `lambda_tikhonov` = 0 (the non-negativity constraint alone), while at SNR 30 and 50 it prefers 0.3. The non-negativity weight stays at 10 across all three. If your protocol differs substantially from the one above, rerun the sweep with the protocol block edited rather than reusing these numbers.
 
