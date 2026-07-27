@@ -205,6 +205,33 @@ Changing that default does not affect anyone who has not opted in: `flag_nonneg`
 
 The best amount of Tikhonov damping depends on the noise, as expected: at SNR 20 the sweep prefers `lambda_tikhonov` = 0 (the non-negativity constraint alone), while at SNR 30 and 50 it prefers 0.3. The non-negativity weight stays at 10 across all three. If your protocol differs substantially from the one above, rerun the sweep with the protocol block edited rather than reusing these numbers.
 
+##### Does regularization flatten the fODF?
+The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground truth)`, so that what the regularizers cost in fODF height can be read next to what they buy in accuracy. The answer is not the obvious one:
+
+| `lambda_nonneg` \ `lambda_tikhonov` | 0 | 0.1 | 0.3 | 1 | 3 | 10 |
+|---|---|---|---|---|---|---|
+| **off** | 1.116 | 1.110 | 1.065 | 0.865 | 0.577 | 0.272 |
+| **1** | 1.019 | 1.017 | 1.001 | 0.873 | 0.576 | 0.270 |
+| **10** | 1.005 | 1.004 | **0.998** | 0.924 | 0.550 | 0.270 |
+| **100** | 1.302 | 1.304 | 1.305 | 1.292 | 1.080 | 0.270 |
+
+- The **unregularized** fODF is not the reference height: its peaks are **inflated by 12%**. The peak is a maximum over directions, so noise biases it upward.
+- **Tikhonov damping is what flattens the fODF**, strongly and monotonically: at `lambda_tikhonov` = 3 the peaks retain 55% of their true height, and at 10 only 27%. That is the mechanism behind the large errors in the right hand columns of the accuracy table.
+- **The non-negativity constraint does not flatten it.** Going from off to `lambda_nonneg` = 10 moves the ratio from 1.116 to 1.005, i.e. it removes the noise-driven inflation rather than shrinking the fODF below the truth. Only when it is pushed far past its optimum (100) does the ratio rise again to 1.30, because a constraint that strong forces the fODF to zero over most of the sphere and concentrates the remaining mass into narrow spikes.
+- At the recommended settings the peak height is preserved to **0.2%** (ratio 0.998), so the accuracy gain documented above is not being bought by flattening.
+
+`tau` behaves the same way: the ratio rises with it (0.964 at 0.02, 0.998 at 0.1, 1.213 at 0.4), and the accuracy optimum at 0.1 is also where the peak height is most faithful.
+
+##### Figures
+`example_fODF_regularization_sweep.m` produces four figures, saved by default to `figures_fODF_sweep/` as both PNG and EPS at 300 dpi (set `saveFigures = false` to only display them):
+
+1. **The regularization landscape** — the `lambda_nonneg` x `lambda_tikhonov` grid as four heat maps: relative fODF error, negative mass, peak angular error, and peak amplitude ratio, with the optimum marked.
+2. **Peak amplitude shrinkage** — the ratio against each weight separately, plus the accuracy against shrinkage trade-off as a scatter over the whole grid.
+3. **Secondary parameters** — `tau`, `Lmax_init` and the two Tikhonov matrices.
+4. **SNR dependence** — how the optimum moves with noise.
+
+Panels are lettered and styled for direct use in a manuscript.
+
 
 ## Useful tips
 The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
