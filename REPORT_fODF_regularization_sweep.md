@@ -85,6 +85,8 @@ the comparison between settings is paired (every setting sees the same noise).
 | RMSE(plm) | RMS error of the coefficients | secondary |
 | negative mass | fraction of the absolute fODF mass that is negative | physical plausibility |
 | peak error | mean angle from each true fiber to the closest peak of the estimate | what tractography actually consumes |
+| **peak amplitude ratio** | `peak(estimate)/peak(truth)` per voxel, averaged. `peak` is the maximum of the fODF over directions | what the regularizer *costs* in fODF height. 1 means the height is preserved, below 1 means the fODF is flattened |
+| peaks/voxel | mean number of detected local maxima | fiber detection, 2 is correct above the resolution limit |
 
 Peaks are local maxima on the 500 directions (a direction beating its 8 nearest neighbours,
 neighbours by `|dot|` since even-order SH are antipodally symmetric), kept above 25% of the
@@ -149,6 +151,34 @@ pulled away from the signal.
 Note also that non-negativity is much the stronger of the two regularizers. Along the
 `lambda_tikhonov` axis alone (top row) the best achievable is 0.286; along the
 `lambda_nonneg` axis alone (first column) it is 0.105.
+
+### 4.1b Peak amplitude: does regularization flatten the fODF?
+
+Same grid, peak amplitude ratio `peak(estimate)/peak(truth)`:
+
+| | 0 | 0.1 | 0.3 | 1 | 3 | 10 |
+|---|---|---|---|---|---|---|
+| **0** (off) | 1.116 | 1.110 | 1.065 | 0.865 | 0.577 | 0.272 |
+| **0.3** | 1.063 | 1.060 | 1.032 | 0.867 | 0.577 | 0.270 |
+| **1** | 1.019 | 1.017 | 1.001 | 0.873 | 0.576 | 0.270 |
+| **3** | 0.988 | 0.987 | 0.976 | 0.873 | 0.571 | 0.270 |
+| **10** | 1.005 | 1.004 | **0.998** | 0.924 | 0.550 | 0.270 |
+| **30** | 1.058 | 1.057 | 1.055 | 1.008 | 0.613 | 0.270 |
+| **100** | 1.302 | 1.304 | 1.305 | 1.292 | 1.080 | 0.270 |
+
+Four things, none of them the naive expectation that "more regularization = smaller peaks":
+
+1. **The unregularized fODF is inflated, not neutral.** Its ratio is 1.116, so the reference point is 12% too tall. The peak is a maximum over directions, and taking a max over a noisy field biases upward. Any comparison that treats the unregularized peak height as ground truth is starting from a biased baseline.
+
+2. **Tikhonov is the flattening mechanism**, and it is strong and monotone: 1.065 at `lambda_tikhonov` = 0.3, 0.865 at 1, 0.577 at 3, 0.272 at 10. It damps the `plm` directly, so it shrinks the anisotropic part of the fODF by construction. This is what drives the large errors in the right hand columns of section 4.1.
+
+3. **Non-negativity does not flatten.** Off to `lambda_nonneg` = 10 moves the ratio 1.116 -> 1.005: it removes the noise-driven inflation rather than pushing the fODF below the truth. That is consistent with what the constraint does mechanically, since it only penalizes amplitude on directions where the fODF is *negative* and leaves the lobes alone.
+
+4. **Past its optimum, non-negativity inflates again.** At `lambda_nonneg` = 100 the ratio is 1.30. A constraint that strong forces the fODF to zero over most of the sphere, and the remaining mass concentrates into narrow spikes that are taller than the true lobes. This is the same failure the accuracy table shows as 0.412 at that row, seen from a different angle.
+
+At the recommended settings the peak height is preserved to 0.2% (ratio 0.998), so the accuracy improvement is not being bought by flattening the fODF. The mean number of detected peaks there is 1.67 per voxel, below 2 because the 40 degree crossing in the condition set sits at the angular resolution limit of an Lmax 6 expansion.
+
+`tau` shows the same pattern: 0.964 at 0.02, 0.998 at 0.1, 1.064 at 0.2, 1.213 at 0.4. The accuracy optimum at 0.1 coincides with the most faithful peak height.
 
 ### 4.2 Stage 2, `tau`
 
@@ -297,8 +327,18 @@ Worth stating plainly, since these bound how far the numbers travel:
 example_fODF_regularization_sweep;
 ```
 
-Prints every table in section 4, the per-SNR breakdown, and a recommended settings block, and
-plots the stage 1 grid as a heat map with the `tau` and Tikhonov matrix curves beside it.
-Edit the protocol, kernel or condition block at the top to re-measure for a different setup.
+Prints every table in section 4, the per-SNR breakdown and a recommended settings block, and
+produces four figures. Edit the protocol, kernel or condition block at the top to re-measure
+for a different setup.
+
+Figures are saved to `figures_fODF_sweep/` as PNG and EPS at 300 dpi, with lettered panels,
+for direct use in a manuscript. Set `saveFigures = false` to display without writing files.
+
+| figure | content |
+|---|---|
+| F1 `landscape` | the `lambda_nonneg` x `lambda_tikhonov` grid as four heat maps: relative fODF error, negative mass, peak angular error, peak amplitude ratio, optimum marked |
+| F2 `peak_shrinkage` | peak amplitude ratio against each weight separately, and the accuracy vs shrinkage trade-off over the whole grid |
+| F3 `secondary_params` | `tau`, `Lmax_init`, and the two Tikhonov matrices |
+| F4 `snr` | how the optimum and the error curves move with SNR |
 
 All numbers in this report were produced with GNU Octave 9 against the current `SMI.m`.

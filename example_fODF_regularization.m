@@ -101,20 +101,93 @@ for cc = 1:length(configs)
     fprintf('%s   %9.4f   %11.4f   %13.4f\n',names{cc},sqrt(err/Nrep),sqrt(err_odf/Nrep),negmass/Nrep);
 end
 
-% ---- Plot one realization along the plane containing both fibers -------
-phi = linspace(0,2*pi,360)';
+% =========================================================================
+% VISUALIZATION (single noise realization, the one stored in plm_examples)
+%
+% All the plots below show the fODF amplitude
+%
+%     fODF(u) = 1/(4*pi) + sum_{l>=2,m} plm_lm*Ylm(u)*sqrt((2l+1)/(4*pi))
+%
+% i.e. the same quantity the non-negativity constraint acts on. Negative
+% amplitudes are physically meaningless, so they are always drawn in a way
+% that makes them explicit rather than clipped away.
+% =========================================================================
+labels = cellfun(@strtrim,names,'UniformOutput',false);
+cols = [0.85 0.33 0.10;   % unregularized
+        0.00 0.45 0.74;   % tikhonov
+        0.47 0.67 0.19;   % non-negativity
+        0.49 0.18 0.56];  % nonneg+tikhonov
+
+% ---- 2D: profile in the plane containing both fibers -------------------
+phi = linspace(0,2*pi,721)';
 dirs_plane = [cos(phi) sin(phi) zeros(size(phi))];
 Y_plane = SMI.get_even_SH(dirs_plane,Lmax,CS_phase).*sqrt((2*L_all+1)/(4*pi));
 amp = @(plm) Y_plane(:,1) + Y_plane(:,2:end)*plm(:);
-figure('Color','w'), hold on
-plot(phi*180/pi,amp(plm_true),'k','LineWidth',2)
+ang = phi*180/pi;
+
+figure('Color','w','Name','fODF in the fiber plane','Position',[80 80 1150 460])
+
+% Signed amplitude: the clearest way to see the spurious negative lobes
+subplot(1,2,1), hold on
+plot(ang,amp(plm_true),'k','LineWidth',2)
 for cc = 1:length(configs)
-    plot(phi*180/pi,amp(plm_examples(cc,:)),'LineWidth',1.2)
+    plot(ang,amp(plm_examples(cc,:)),'LineWidth',1.3,'Color',cols(cc,:))
 end
-plot(phi*180/pi,zeros(size(phi)),'k--')
-xlabel('angle in the fiber plane [degrees]'), ylabel('fODF')
-legend(['ground truth',names],'Location','best'), box on
-title('fODF along the plane containing both fibers (single noise realization)')
+plot(ang,zeros(size(phi)),'k--')
+ylims = get(gca,'YLim');
+for kk = 1:size(fibers,1) % true fiber orientations (and their antipodes)
+    a0 = atan2d(fibers(kk,2),fibers(kk,1));
+    plot([a0 a0],ylims,':','Color',[.6 .6 .6])
+    plot([a0 a0]+180,ylims,':','Color',[.6 .6 .6])
+end
+set(gca,'XTick',0:60:360), xlim([0 360]), ylim(ylims), box on
+xlabel('angle in the fiber plane [degrees]'), ylabel('fODF amplitude')
+legend(['ground truth',labels],'Location','best')
+title('signed amplitude (dotted = true fiber directions)')
+
+% Polar view: the fODF shape, with the negative part folded out separately
+subplot(1,2,2), hold on
+a_gt = amp(plm_true);
+plot(max(a_gt,0).*cos(phi),max(a_gt,0).*sin(phi),'k','LineWidth',2)
+for cc = 1:length(configs)
+    a = amp(plm_examples(cc,:));
+    plot(max(a,0).*cos(phi),max(a,0).*sin(phi),'LineWidth',1.3,'Color',cols(cc,:))
+end
+for cc = 1:length(configs) % |negative part|, dashed in the same colour
+    rn = max(-amp(plm_examples(cc,:)),0);
+    if any(rn>1e-12)
+        plot(rn.*cos(phi),rn.*sin(phi),'--','LineWidth',0.9,'Color',cols(cc,:))
+    end
+end
+axis equal, grid on, box on
+xlabel('x'), ylabel('y')
+title('polar view (solid = positive part, dashed = |negative part|)')
+
+% ---- 3D: fODF glyphs ----------------------------------------------------
+% Radius along u is the fODF amplitude, so the glyph is the familiar peanut
+% shaped surface whose lobes point along the fiber directions
+Ntheta = 61; Nphi = 121;
+[TH,PH] = meshgrid(linspace(0,pi,Ntheta),linspace(0,2*pi,Nphi));
+Xs = sin(TH).*cos(PH); Ys = sin(TH).*sin(PH); Zs = cos(TH);
+Y_mesh = SMI.get_even_SH([Xs(:) Ys(:) Zs(:)],Lmax,CS_phase).*sqrt((2*L_all+1)/(4*pi));
+amp_mesh = @(plm) reshape(Y_mesh(:,1)+Y_mesh(:,2:end)*plm(:),size(Xs));
+
+amp_all = [{amp_mesh(plm_true)}, cell(1,length(configs))];
+for cc = 1:length(configs), amp_all{cc+1} = amp_mesh(plm_examples(cc,:)); end
+% Common radial scale so that the glyphs are directly comparable
+rmax = max(cellfun(@(a) max(a(:)),amp_all));
+titles = ['ground truth',labels];
+
+figure('Color','w','Name','fODF glyphs','Position',[80 80 1200 760])
+for kk = 1:length(amp_all)
+    subplot(2,3,kk)
+    SMI_plot_fODF_glyph(amp_all{kk},Xs,Ys,Zs,rmax,titles{kk},fibers)
+end
+subplot(2,3,6), axis off
+text(0,0.5,{'Glyph radius = fODF amplitude,','all panels share the same scale.','', ...
+            'Surface colour = orientation','(red = x, green = y, blue = z).','', ...
+            'Translucent red lobes are the','NEGATIVE part of the fODF, drawn','at radius |fODF|.','', ...
+            'Black lines are the two true','fiber directions.'},'FontSize',10,'VerticalAlignment','middle')
 
 % =========================================================================
 % Usage inside SMI.fit:
@@ -128,3 +201,33 @@ title('fODF along the plane containing both fibers (single noise realization)')
 % number of iterations, the number of constrained directions, and a
 % convergence flag for each voxel.
 % =========================================================================
+
+function SMI_plot_fODF_glyph(a,Xs,Ys,Zs,rmax,ttl,fibers)
+% SMI_plot_fODF_glyph(a,Xs,Ys,Zs,rmax,ttl,fibers)
+%
+% Draws one fODF glyph on the current axes. The positive part of the
+% amplitude is rendered as a surface with radius a(u) coloured by
+% orientation, and the negative part (which is what the non-negativity
+% constraint suppresses) is overlaid as a translucent red surface at radius
+% |a(u)|, so that spurious lobes are visible instead of being clipped.
+%
+% a       [Ntheta x Nphi] fODF amplitude on the spherical mesh
+% Xs,Ys,Zs  the unit sphere mesh the amplitude was evaluated on
+% rmax    radial scale shared by all the glyphs that are compared
+% fibers  [Nfibers x 3] true fiber directions, drawn as reference axes
+%
+rp = max(a,0);
+surf(rp.*Xs,rp.*Ys,rp.*Zs,cat(3,abs(Xs),abs(Ys),abs(Zs)),...
+     'EdgeColor','none','FaceColor','interp'), hold on
+rn = max(-a,0);
+if any(rn(:)>1e-12)
+    surf(rn.*Xs,rn.*Ys,rn.*Zs,'EdgeColor','none','FaceColor',[0.85 0.1 0.1],'FaceAlpha',0.35)
+end
+for kk = 1:size(fibers,1)
+    u = 1.05*rmax*fibers(kk,:);
+    plot3([-u(1) u(1)],[-u(2) u(2)],[-u(3) u(3)],'k-','LineWidth',1)
+end
+axis(1.1*rmax*[-1 1 -1 1 -1 1]), daspect([1 1 1]), axis off
+view(-25,30), camlight headlight, lighting gouraud, material dull
+title(ttl,'FontWeight','normal')
+end
