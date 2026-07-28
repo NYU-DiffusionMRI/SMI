@@ -202,10 +202,29 @@ product of the two independent `p2` estimates, `out.kernel(p2) .* out.pl(:,:,:,1
 A voxel is kept only if both estimates agree it is coherent, which cancels the
 kernel estimate's CSF floor against the deconvolved estimate's noise tail.
 
+Two equivalent ways to apply it. As a flag on the fit, so the same script can be
+run with and without:
+
+```matlab
+options.fODF_modulation.flag_modulate = 1;         % default 0, off
+out = SMI.fit(dwi, options);
+out.fODF_modulated                                  % the weighted SH coefficients
+out.fODF_modulation.weight                          % the per voxel weight map
+```
+
+or post hoc, on an already fitted `out`:
+
 ```matlab
 [sh, w, info] = SMI.modulate_fODF(out);            % defaults
 [sh, w, info] = SMI.modulate_fODF(out, struct('source','kernel_p2','exponent',2));
 ```
+
+The two paths produce bit-identical output. **`out.plm`, `out.pl` and
+`out.kernel` are identical whether the flag is on or off** — the modulated fODF
+is returned separately in `out.fODF_modulated`, so switching the flag cannot
+perturb anything upstream, and a modulated and an unmodulated run can be
+compared directly. Settings and the degenerate voxel count are written to the
+log file, as they are for the regularization.
 
 - `kernel_p2` with `exponent = 2` is the near-equal alternative, and the only
   option available when `flag_fit_fODF = 0`.

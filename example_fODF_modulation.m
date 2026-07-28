@@ -165,11 +165,25 @@ end
 % Applying the modulation. The result is the SH coefficient array INCLUDING
 % the l=0 term, which out.plm does not store: without it the density weighting
 % would be lost.
+%
+% Either post hoc on an already fitted out ...
 out = store(end,2).out;
 [sh,w,info] = SMI.modulate_fODF(out, struct('source','p2product','mode','density'));
 fprintf(['\nmodulated fODF: %d SH coefficients, weight in [%.3f %.3f], ' ...
          '%d degenerate voxels, mode ''%s''\n'], ...
         size(sh,4), min(w(:)), max(w(:)), info.Ndegenerate, info.mode);
+
+% ... or as a flag on the fit itself, which is the way to run one instance
+% with the modulation and one without. out.plm, out.pl and out.kernel are
+% identical either way; only out.fODF_modulated is added.
+o = opts;
+o.fODF_regularization = arms{2}{2};
+o.filename_log        = 'log_modulation_flag_on.txt';
+o.fODF_modulation     = struct('flag_modulate',1);   % default 0, off
+out_on = SMI.fit(reshape(S_flat',[vol Ndwi]), o);
+fprintf('flag on: out.fODF_modulated is %s, out.plm unchanged: %d\n', ...
+        mat2str(size(out_on.fODF_modulated)), ...
+        isequal(out_on.plm, out.plm));
 fprintf('NOTE: in density mode p_00 is no longer 1. Record which convention\n');
 fprintf('      a saved NIfTI is in, and check SMI''s SH basis against MRtrix''s\n');
 fprintf('      ordering and Condon-Shortley convention before running tckgen.\n');

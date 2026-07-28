@@ -152,6 +152,35 @@ classdef SMI
     % options.fODF_regularization.TikhonovMatrix 'identity' (default) or
     %                     'laplacebeltrami' (Gamma=diag(l(l+1))/max(l(l+1)))
     %
+    % fODF anisotropy modulation (OFF by default, see REPORT_fODF_modulation.md)
+    %
+    % The fODF is stored with p_00 = 1, so it integrates to 1 in every voxel
+    % and its isotropic floor is a fixed 1/(4*pi) = 0.0796, above MRtrix's
+    % default iFOD2 -cutoff of 0.05. An unmodulated fODF therefore passes the
+    % tractography termination test everywhere in the brain, CSF included.
+    % Weighting by orientational coherence restores that amplitude
+    % information, without keying on tissue type, which would delete edema.
+    %
+    % options.fODF_modulation.flag_modulate = 1 enables it (default 0, off).
+    %                     out.plm, out.pl and out.kernel are IDENTICAL whether
+    %                     it is on or off; the modulated fODF is returned
+    %                     separately as out.fODF_modulated, so the same fit can
+    %                     be compared with and without.
+    % options.fODF_modulation.source which anisotropy map to weight by:
+    %                     'p2product' (default, out.kernel p2 .* out.pl(l=2)),
+    %                     'pl2', 'kernel_p2', 'pl4', 'kernel_p4', or a
+    %                     [X Y Z] map supplied directly. p4 is NOT recommended
+    %                     in either flavour, see SMI.fODF_ModulationWeight.
+    % options.fODF_modulation.mode 'density' (default, scales all coefficients
+    %                     including l=0, which is what tractography needs) or
+    %                     'shape' (scales only l>0, leaving the mass at 1)
+    % options.fODF_modulation.exponent w = p.^exponent (default 1)
+    % options.fODF_modulation.clip [lo hi] bounds on p (default [0 1])
+    % options.fODF_modulation.degenerate 'clip' (default) or 'reject', what to
+    %                     do where p exceeds clip(2), i.e. where the
+    %                     deconvolution has blown up
+    % options.fODF_modulation.floor lower bound on w (default 0)
+    %
     % Free water compartment
     % options.D_FW this diffusivity is by default fixed at 3
     % micrometer^2/ms which is the water diffusivity at body temperature.
@@ -261,6 +290,18 @@ classdef SMI
                 fODF_regularization = [];
             else
                 fODF_regularization = options.fODF_regularization;
+            end
+            if ~isfield(options,'fODF_modulation')
+                fODF_modulation = [];
+            else
+                fODF_modulation = options.fODF_modulation;
+                % Modulation weights the fODF, so there has to be an fODF.
+                % Without this the request would be a silent no-op.
+                if isstruct(fODF_modulation) && isfield(fODF_modulation,'flag_modulate') && ...
+                        fODF_modulation.flag_modulate && ~flag_fit_fODF
+                    error('SMI:fit',['options.fODF_modulation.flag_modulate = 1 requires ' ...
+                        'options.flag_fit_fODF = 1: there is no fODF to modulate otherwise.']);
+                end
             end
             if ~isfield(options,'flag_freeze_seeds') 
                 flag_freeze_seeds = 1;
@@ -513,6 +554,25 @@ classdef SMI
                 out.fODF_regularization = fODF_regularization;
                 out.CS_phase=CS_phase;
                 out.Lmax=Lmax;
+
+                % Anisotropy modulation. Opt in, and deliberately applied HERE,
+                % after the deconvolution has finished: the non-negativity
+                % constraint operates on the normalized fODF, so weighting has
+                % to happen downstream of it, not inside it.
+                %
+                % out.plm is left untouched in the normalized p_00 = 1
+                % convention. The modulated fODF is returned separately as
+                % out.fODF_modulated, so a fit with the flag on and one with it
+                % off give identical out.plm, out.pl and out.kernel.
+                fODF_modulation = SMI.fODF_ModulationDefaults(fODF_modulation);
+                if fODF_modulation.flag_modulate
+                    [sh_mod,w_mod,info_mod] = SMI.modulate_fODF(out,fODF_modulation);
+                    out.fODF_modulated = sh_mod;
+                    fODF_modulation.weight             = w_mod;
+                    fODF_modulation.Ndegenerate        = info_mod.Ndegenerate;
+                    fODF_modulation.fraction_degenerate= info_mod.fraction_degenerate;
+                end
+                out.fODF_modulation = fODF_modulation;
             end
             if flag_rectify_fODF
                 plm=SMI.vectorize(plm,mask);
@@ -604,6 +664,27 @@ classdef SMI
                         fODF_regularization.lambda_nonneg,fODF_regularization.tau,fODF_regularization.Ndirs,fODF_regularization.Niter)];
                 else
                     file_log = [file_log '- fODF non-negativity constraint: none \n'];
+                end
+            end
+            if flag_fit_fODF && isstruct(fODF_modulation)
+                if fODF_modulation.flag_modulate
+                    if isnumeric(fODF_modulation.source)
+                        source_str = 'user supplied map';   % never print the array itself
+                    else
+                        source_str = fODF_modulation.source;
+                    end
+                    file_log = [file_log sprintf(['- fODF anisotropy modulation: source = %s, mode = %s, ' ...
+                        'exponent = %.3g, clip = [%.3g %.3g], degenerate = %s, floor = %.3g \n'], ...
+                        source_str, fODF_modulation.mode, fODF_modulation.exponent, ...
+                        fODF_modulation.clip(1), fODF_modulation.clip(2), ...
+                        fODF_modulation.degenerate, fODF_modulation.floor)];
+                    if isfield(fODF_modulation,'Ndegenerate')
+                        file_log = [file_log sprintf('- fODF anisotropy modulation: %d degenerate voxels (%.3f%% of the mask) \n', ...
+                            fODF_modulation.Ndegenerate, 100*fODF_modulation.fraction_degenerate)];
+                    end
+                    file_log = [file_log '- fODF anisotropy modulation: out.plm is unchanged, the modulated fODF is out.fODF_modulated \n'];
+                else
+                    file_log = [file_log '- fODF anisotropy modulation: none \n'];
                 end
             end
 
@@ -926,6 +1007,45 @@ classdef SMI
             dirs = [r.*cos(phi), r.*sin(phi), z];
         end
         % =================================================================
+        function mod = fODF_ModulationDefaults(mod)
+            % mod = SMI.fODF_ModulationDefaults(mod)
+            %
+            % Fills in the default values of the options controlling the
+            % anisotropy modulation of the fODF. Modulation is OPT IN:
+            % flag_modulate defaults to 0, so a fit that does not set
+            % options.fODF_modulation behaves exactly as before.
+            %
+            % mod.flag_modulate  1 enables the modulation (default 0)
+            % mod.source         which anisotropy map to weight by (default
+            %                    'p2product'); see SMI.fODF_ModulationWeight
+            % mod.mode           'density' (default) or 'shape'; see
+            %                    SMI.modulate_fODF
+            % mod.exponent       w = p.^exponent (default 1)
+            % mod.clip           [lo hi] bounds on p (default [0 1])
+            % mod.degenerate     'clip' (default) or 'reject'
+            % mod.floor          lower bound on w (default 0)
+            if isempty(mod), mod = struct(); end
+            if ~isstruct(mod)
+                error('SMI:fODF_ModulationDefaults','options.fODF_modulation must be a structure');
+            end
+            if ~isfield(mod,'flag_modulate'), mod.flag_modulate = 0; end
+            if ~isfield(mod,'source'),        mod.source     = 'p2product'; end
+            if ~isfield(mod,'mode'),          mod.mode       = 'density'; end
+            if ~isfield(mod,'exponent'),      mod.exponent   = 1; end
+            if ~isfield(mod,'clip'),          mod.clip       = [0 1]; end
+            if ~isfield(mod,'degenerate'),    mod.degenerate = 'clip'; end
+            if ~isfield(mod,'floor'),         mod.floor      = 0; end
+            if numel(mod.clip)~=2 || mod.clip(1)>=mod.clip(2)
+                error('SMI:fODF_ModulationDefaults','fODF_modulation.clip must be [lo hi] with lo < hi');
+            end
+            if ~ismember(lower(mod.mode),{'density','shape'})
+                error('SMI:fODF_ModulationDefaults','fODF_modulation.mode must be ''density'' or ''shape''');
+            end
+            if ~ismember(lower(mod.degenerate),{'clip','reject'})
+                error('SMI:fODF_ModulationDefaults','fODF_modulation.degenerate must be ''clip'' or ''reject''');
+            end
+        end
+        % =================================================================
         function p = grab_pl(out,which_l)
             % p = SMI.grab_pl(out,which_l)
             %
@@ -1163,6 +1283,10 @@ classdef SMI
             % the rest of this toolbox assumes. Document which convention a
             % saved NIfTI is in.
             %
+            % Voxels outside the mask are returned as 0, not NaN as out.plm
+            % has them, so that the result can be written straight out for
+            % tractography.
+            %
             % Note that SMI's SH basis is not necessarily MRtrix's. Verify the
             % ordering and the Condon-Shortley convention before feeding the
             % result to MRtrix.
@@ -1201,6 +1325,10 @@ classdef SMI
             else
                 error('SMI:modulate_fODF','unknown options.mode ''%s''',options.mode);
             end
+            % Voxels outside the mask are NaN in out.plm (SMI.vectorize fills
+            % with NaN). They become 0 here rather than NaN, because a NaN in
+            % an SH volume breaks downstream tractography. This is a
+            % deliberate difference from the convention of out.plm.
             sh(~isfinite(sh)) = 0;
 
             info.mode = options.mode;
