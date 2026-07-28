@@ -153,6 +153,7 @@ The code provides some additional flexibility:
 - User-defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
 - Regularization (non-negativity and Tikhonov) of the fODF deconvolution, see below.
+- Anisotropy modulation of the fODF, so that its amplitude carries orientational coherence for tractography, see below.
 
 
 ### Regularized fODF deconvolution
@@ -231,6 +232,101 @@ The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground tru
 4. **SNR dependence** — how the optimum moves with noise.
 
 Panels are lettered and styled for direct use in a manuscript.
+
+
+### Anisotropy modulation of the fODF
+`out.plm` is stored in the normalized convention `p_00 = 1`, so the fODF **integrates to 1 in every voxel**: an isotropic CSF voxel and a tightly coherent white matter voxel produce fODFs of the same total mass. Its isotropic floor is therefore a fixed
+
+```
+1/(4*pi) = 0.0796  >  0.05 = MRtrix's default iFOD2 -cutoff
+```
+
+so an unmodulated SMI fODF **passes the MRtrix termination test in every voxel of the brain, CSF included**. In the simulation below, 100% of grey matter and 100% of CSF voxels survive the default cutoff. MRtrix FODs are not normalized: their amplitude carries apparent fiber density, and both `iFOD2` and `SD_STREAM` use it for the termination threshold. Feeding a normalized fODF to a tractography algorithm removes its ability to tell tissue from non-tissue by amplitude.
+
+Modulation multiplies the fODF by a per-voxel weight `w` that measures **orientational coherence**. This is deliberately not a tissue-type criterion: fibers displaced by edema stay coherent and keep a high weight even when their axonal fraction has collapsed, so peritumoral tissue is preserved where an `f` or `1-fw` threshold would delete it — which matters when the whole point is tracking *through* edema.
+
+Two distinct operations, which should not be conflated:
+
+| mode | operation | effect |
+|---|---|---|
+| `'density'` (default) | scales **all** coefficients, including `l=0` | `fODF -> w*fODF`. Shape and peak orientation unchanged, total mass becomes `w`. The AFD-like operation, and the one tractography needs. |
+| `'shape'` | scales only `l>0` | mass stays 1, the fODF sharpens or flattens. This is what the Tikhonov term already does implicitly. |
+
+It is **off by default** and is a toggle, so the same script can be run with and without it:
+
+```
+options.flag_fit_fODF = 1;
+options.fODF_modulation.flag_modulate = 1;           % default 0 (off)
+options.fODF_modulation.source        = 'p2product'; % default
+options.fODF_modulation.mode          = 'density';   % default
+options.fODF_modulation.exponent      = 1;           % default
+options.fODF_modulation.clip          = [0 1];       % default
+options.fODF_modulation.degenerate    = 'clip';      % or 'reject'
+options.fODF_modulation.floor         = 0;           % default
+
+[out] = SMI.fit(dwi,options);
+out.fODF_modulated           % weighted SH coefficients, INCLUDING the l=0 term
+out.fODF_modulation.weight   % the per-voxel weight map
+```
+
+`out.plm`, `out.pl` and `out.kernel` are **identical whether the flag is on or off** (verified, difference exactly 0). The modulation is applied after the deconvolution has finished — it has to be, since the non-negativity constraint operates on the normalized fODF — and the result is returned in a separate field, so switching the flag cannot perturb anything upstream and the two runs can be compared directly. The same operation is available post hoc as `SMI.modulate_fODF(out,options)`, which produces bit-identical output.
+
+#### Which anisotropy? Not p4, and not either p2 on its own
+There are two independent estimates of `p2` in the output and they fail in **opposite** ways:
+
+- `out.kernel(:,:,:,ip2)` — estimated jointly with the kernel by the polynomial regression on rotational invariants. Stable, and available even when `flag_fit_fODF = 0`, but it **does not fall to 0 in CSF**: its regression is trained on a prior of tissue kernels, so where the `l=2` signal carries no information it returns roughly the prior mean (median 0.31 in simulated CSF against a true value of 0).
+- `out.pl(:,:,:,1)` — the `l=2` rotational invariant of the deconvolved fODF. It has no such floor (median 0.076) because it is a direct projection of the measured signal, but it inherits the deconvolution's noise and so has a heavy tail.
+
+The default `'p2product'` is their product: a voxel is kept only if **both** estimates agree it is coherent, which cancels one's bias against the other's variance. `'pl2'`, `'kernel_p2'`, `'pl4'`, `'kernel_p4'`, or a `[X Y Z]` map supplied directly are also accepted.
+
+**`p4` is not recommended in either flavour.** The kernel `p4` carries the same upward bias, and is bounded above by the training prior, which draws `p4 = rand*p2*0.9`. The deconvolved `pl4` is destroyed by the Tikhonov term, which damps `l=4` far harder than `l=2` (median 0.26 in single-fiber white matter against a true 0.71) — weighting by it measures the regularizer, not the tissue.
+
+#### Measured results
+`example_fODF_modulation.m` (no data needed, helpers in `fODF_modulation_helpers.m`) simulates seven voxel classes with 200 noise realizations each, 6 shells (b = 0, 1, 2, 3, 4.5, 6 ms/um^2, `Lmax = [0 2 2 2 4 4]`), fitted through the real `SMI.fit` at SNR 30 and 15, with and without the regularized deconvolution. The forward model is the same construction the deconvolution inverts, so it round-trips to `max|error| = 1.2e-15`.
+
+The third class, **white matter inside edema**, is the control that must survive: `f` = 0.30 and `fw` = 0.50, but the fibers are still coherent. A weight that suppresses it along with grey matter and CSF is a tissue-type criterion in disguise.
+
+Percentage of voxels left above the MRtrix default cutoff of 0.05, at **SNR 15 with the regularized deconvolution**:
+
+| class | unweighted | `kernel_p2` | `kernel_p2^2` | `pl2` | `pl4` | **`p2product`** |
+|---|---|---|---|---|---|---|
+| WM single fiber | 100% | 100% | 100% | 100% | 100% | **100%** |
+| WM crossing 60 deg | 100% | 100% | 94% | 100% | 10% | **92%** |
+| **WM in edema** | 100% | 100% | 100% | 100% | 100% | **100%** |
+| GM | 100% | 0% | 0% | 0% | 10% | **0%** |
+| CSF | 100% | 54% | 0% | 20% | 84% | **0%** |
+| WM/CSF interface | 100% | 100% | 100% | 100% | 100% | **100%** |
+| WM/GM interface | 100% | 100% | 100% | 100% | 100% | **100%** |
+
+Weighting by `pl4` leaves 84% of CSF above cutoff, **worse than not weighting at all**. Interface voxels are fully retained by every `p2` weight, so modulation does not erode tract boundaries.
+
+Scoring against an adaptive threshold instead — the cutoff `T` that retains 95% of all white matter *including the edema class*, then the fraction of GM+CSF still above `T` — separates the anisotropy weights from the tissue-fraction ones:
+
+| weight | FP GM+CSF | edema retained | separation |
+|---|---|---|---|
+| unweighted | 10.5% | 100% | 1.39 |
+| `kernel_p2` | 0.0% | 100% | 2.45 |
+| `pl2` | 0.8% | 100% | 2.25 |
+| `pl4` | 60.0% | 100% | 1.52 |
+| **`p2product`** | **0.0%** | **100%** | **4.15** |
+| `f` *(tissue-type reference)* | 0.0% | **94%** | 2.58 |
+| `1-fw` *(tissue-type reference)* | 31.5% | **85%** | 0.86 |
+
+The last two rows are the case against tissue-fraction weights: `f` discards 6% of the edema class and `1-fw` discards 15%, while every `p2`-based weight keeps 100% of it. `1-fw` also fails at its own job, leaving 63% of grey matter above threshold.
+
+#### Modulation does not replace regularization
+At SNR 15 **without** the regularized deconvolution the CSF class produced fODF peaks up to **2.2e14**, reproducing the amplitudes seen in real data. The mechanism is the deconvolution's noise-amplification gain `g_2 = 1/||K_2(b)||`, measured at 3.6 in CSF against 0.6 in white matter: `p_2m` is recovered by dividing the `l=2` signal harmonic by `K_2`, and in a nearly isotropic voxel `K_2 -> 0`. The regularized fit caps the same voxels at 0.449.
+
+The weight is clipped at 1, so it cannot rescue a blown-up voxel — `w*1e13` is still `1e13`. **Run the regularized deconvolution as well.** If fODF peaks are also being truncated, truncate **before** modulating: truncation thresholds are absolute amplitudes and modulation rescales them.
+
+#### Conventions to be aware of
+- In `'density'` mode `p_00` is no longer 1. That is the point, but the result is **not** in the convention the rest of the toolbox assumes — record which convention a saved NIfTI is in.
+- `out.fODF_modulated` includes the `l=0` term, which `out.plm` does not store. Without it the density weighting would be lost.
+- Voxels outside the mask are returned as `0`, not the `NaN` that `out.plm` carries, since a NaN in an SH volume breaks downstream tractography.
+- `out.fODF_modulated` is in SMI's own SH basis (`SMI.get_even_SH` with `out.CS_phase`). **This has not been checked against MRtrix's basis** — verify the coefficient ordering and the Condon-Shortley convention before running `tckgen`.
+- These are simulations. `p2` in real edema should be checked against a known ROI before this is relied on: the simulated edema class assumes fibers stay coherent, which is the assumption the whole approach rests on.
+
+Full methodology, all result tables and limitations are in `REPORT_fODF_modulation.md`.
 
 
 ## Useful tips

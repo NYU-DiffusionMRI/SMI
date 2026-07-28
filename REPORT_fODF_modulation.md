@@ -271,9 +271,31 @@ basis before feeding it to `tckgen`** — this has not been checked here.
 
 | file | contents |
 |---|---|
-| `SMI.m` | `grab_pl`, `grab_kernel_pl`, `fODF_ModulationWeight`, `modulate_fODF` (additions only; existing code paths untouched, so fits without modulation are bit-identical) |
+| `SMI.m` | the five new static methods and the `SMI.fit` integration, see the map below |
 | `example_fODF_modulation.m` | the simulation and scoring above |
+| `fODF_modulation_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
 | `REPORT_fODF_modulation.md` | this file |
+| `0004fODFmodulation.patch` | the exact diff of the two commits, applies with `git am` |
+
+### Exactly what changed in `SMI.m`
+
+Every hunk is an **addition**; no existing line was modified or deleted
+(`git diff -U0 SMI.m | grep '^-'` is empty across both commits). A fit that
+does not set `options.fODF_modulation` is therefore unchanged.
+
+| lines | what |
+|---|---|
+| 155-182 | header documentation of the `options.fODF_modulation` block |
+| 294-306 | option parsing in `SMI.fit`, including the guard that rejects `flag_modulate = 1` with `flag_fit_fODF = 0` |
+| 558-576 | the call site in `SMI.fit`, after the deconvolution, writing `out.fODF_modulated` and `out.fODF_modulation` |
+| 669-689 | the log file entries, including the explicit `none` line when the flag is off |
+| 1010-1047 | `SMI.fODF_ModulationDefaults` — option defaults and validation |
+| 1049-1062 | `SMI.grab_pl` — accessor for `out.pl` |
+| 1064-1098 | `SMI.grab_kernel_pl` — accessor for the kernel `p2`/`p4`, resolving the index ambiguity from `out.shells` |
+| 1100-1244 | `SMI.fODF_ModulationWeight` — builds the weight map |
+| 1246-1336 | `SMI.modulate_fODF` — applies it and returns SH coefficients |
+
+Line numbers are as of commit `2ffbcd6`.
 
 `out.kernel` layout is `[f Da Depar Deperp fw (T2a T2e) p2 (p4) (p6)]`, so `p2`
 sits at index 6 without T2 fitting and 8 with it. The map count alone is
