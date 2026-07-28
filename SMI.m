@@ -926,6 +926,287 @@ classdef SMI
             dirs = [r.*cos(phi), r.*sin(phi), z];
         end
         % =================================================================
+        function p = grab_pl(out,which_l)
+            % p = SMI.grab_pl(out,which_l)
+            %
+            % out.pl(:,:,:,which_l), the rotational invariant of the
+            % deconvolved fODF for l = 2*which_l. Helper for
+            % SMI.fODF_ModulationWeight.
+            if ~isfield(out,'pl') || isempty(out.pl)
+                error('SMI:grab_pl','out.pl is missing; run SMI.fit with flag_fit_fODF = 1');
+            end
+            if size(out.pl,4) < which_l
+                error('SMI:grab_pl','out.pl has no l=%d term; Lmax must be at least %d',2*which_l,2*which_l);
+            end
+            p = double(out.pl(:,:,:,which_l));
+        end
+        % =================================================================
+        function p = grab_kernel_pl(out,options,offset)
+            % p = SMI.grab_kernel_pl(out,options,offset)
+            %
+            % out.kernel(:,:,:,ip2+offset): p2 (offset 0) or p4 (offset 1) as
+            % estimated with the kernel. Helper for
+            % SMI.fODF_ModulationWeight.
+            %
+            % The kernel layout is [f Da Depar Deperp fw (T2a T2e) p2 (p4) (p6)],
+            % so p2 sits at index 6 without T2 fitting and at index 8 with it.
+            % The number of maps alone is ambiguous (7 maps is either
+            % [f Da Depar Deperp fw p2 p4] or [f Da Depar Deperp fw T2a T2e]),
+            % so variable TE is detected from out.shells, whose 4th row is TE.
+            if ~isfield(out,'kernel') || isempty(out.kernel)
+                error('SMI:grab_kernel_pl','out.kernel is missing');
+            end
+            Nk = size(out.kernel,4);
+            if isfield(options,'kernel_p2_index') && ~isempty(options.kernel_p2_index)
+                ip2 = options.kernel_p2_index;
+            else
+                fit_T2 = false;
+                if isfield(out,'shells') && ~isempty(out.shells) && size(out.shells,1) >= 4
+                    % TE is compared with a tolerance of 1e-1 elsewhere in SMI
+                    fit_T2 = (max(out.shells(4,:)) - min(out.shells(4,:))) > 1e-1;
+                end
+                ip2 = 6 + 2*fit_T2;
+            end
+            if Nk < ip2 + offset
+                error('SMI:grab_kernel_pl', ...
+                    ['out.kernel has %d maps, so it does not contain p%d at index %d. ' ...
+                     'RotInv_Lmax must be at least %d; if the layout is being ' ...
+                     'misdetected set options.kernel_p2_index explicitly.'], ...
+                    Nk, 2+2*offset, ip2+offset, 2+2*offset);
+            end
+            p = double(out.kernel(:,:,:,ip2+offset));
+        end
+        % =================================================================
+        function [w,info] = fODF_ModulationWeight(out,options)
+            % [w,info] = SMI.fODF_ModulationWeight(out,options)
+            %
+            % Per voxel weight in [0,1] measuring how orientationally COHERENT a
+            % voxel is, for use as a density weight on the fODF (see
+            % SMI.modulate_fODF). It is deliberately NOT a tissue type
+            % criterion: fibres displaced by edema stay coherent and keep a
+            % high weight even when their axonal fraction f collapses, so
+            % peritumoral tissue is not deleted the way an f or 1-fw threshold
+            % deletes it.
+            %
+            % out       the structure returned by SMI.fit. Must contain the
+            %           field the chosen source needs (see below).
+            %
+            % There are two independent estimates of p2 in the output, and they
+            % fail in opposite ways, so the default weight is their product.
+            %
+            % options.source    which anisotropy map to build the weight from:
+            %   'p2product' (default) kernel_p2 .* pl2. A voxel is kept only if
+            %               BOTH estimates agree that it is coherent.
+            %   'pl2'       out.pl(:,:,:,1), the l=2 rotational invariant of the
+            %               DECONVOLVED fODF. Unbiased in CSF but inherits the
+            %               deconvolution's noise, so it has a heavy tail.
+            %   'kernel_p2' out.kernel(:,:,:,ip2), p2 estimated jointly with the
+            %               kernel by the polynomial regression on rotational
+            %               invariants. Stable, and available even when
+            %               flag_fit_fODF=0, but biased upward in CSF. Use
+            %               exponent 2 with this source.
+            %   'pl4'       out.pl(:,:,:,2), the l=4 invariant of the fODF.
+            %               Requires Lmax>=4. NOT recommended, see below.
+            %   'kernel_p4' the kernel p4, present only when RotInv_Lmax>=4.
+            %               NOT recommended, see below.
+            %   numeric     a [X Y Z] map supplied directly by the caller.
+            %
+            % options.kernel_p2_index  index of p2 within out.kernel. Normally
+            %                   inferred (6 without T2 fitting, 8 with), using
+            %                   out.shells to detect variable TE. Set it
+            %                   explicitly if that inference is wrong.
+            %
+            % options.exponent  w = p.^exponent (default 1). Larger values
+            %                   sharpen the contrast between coherent and
+            %                   incoherent voxels.
+            % options.clip      [lo hi] applied to p BEFORE the exponent
+            %                   (default [0 1]). A physical fODF has p_l<=1,
+            %                   so values above 1 mean the deconvolution has
+            %                   failed in that voxel.
+            % options.degenerate  what to do where p exceeds clip(2), i.e.
+            %                   where the deconvolution has blown up:
+            %   'clip'      (default) pull the weight down to clip(2)
+            %   'reject'    set the weight to 0, removing the voxel
+            % options.floor     lower bound applied to w AFTER the exponent
+            %                   (default 0).
+            %
+            % info returns the raw map, the count of degenerate voxels, and the
+            % options actually used.
+            %
+            % WHY THE PRODUCT, AND WHY NOT p4
+            %
+            % Measured on a 7 class simulation, regularized deconvolution at
+            % SNR 15 (see example_fODF_modulation.m and
+            % REPORT_fODF_modulation.md). Fraction of voxels left above
+            % MRtrix's default iFOD2 cutoff of 0.05:
+            %
+            %                    unweighted  kernel_p2  kernel_p2^2  pl2  product
+            %   WM single fibre        100%       100%         100%  100%    100%
+            %   WM crossing 60         100%       100%          94%  100%    100%
+            %   WM in edema            100%       100%         100%  100%    100%
+            %   GM                     100%         0%           0%    0%      0%
+            %   CSF                    100%        54%           0%   20%      0%
+            %
+            % Unweighted, EVERY voxel in the brain survives MRtrix's default
+            % cutoff, CSF included, because the normalized fODF has a fixed
+            % isotropic floor of 1/(4*pi) = 0.0796 > 0.05.
+            %
+            % kernel_p2 alone does not fall to 0 in CSF. Its polynomial
+            % regression is trained on a prior of tissue kernels, and where the
+            % l=2 signal carries no information the fit returns roughly the
+            % prior mean (median 0.31 in simulated CSF at SNR 30, against a
+            % true value of 0) instead of 0. pl2 has no such floor (median
+            % 0.076) because it is a direct projection of the measured signal,
+            % but it inherits the deconvolution's noise and so has a heavy
+            % tail. The product removes both failure modes.
+            %
+            % p4 is worse than p2 on both counts. The kernel p4 is biased
+            % upward in the same way, and the deconvolved pl4 is destroyed by
+            % the Tikhonov term of the regularized deconvolution, which damps
+            % l=4 far harder than l=2 (median 0.26 in single fibre WM at SNR 15
+            % against a true 0.71). Weighting by pl4 after a regularized fit
+            % leaves 84% of CSF above cutoff -- worse than not weighting at
+            % all. It measures the regularizer, not the tissue.
+            %
+            % Anisotropy weights, unlike tissue fraction weights, preserve
+            % edema. Under the cutoff that retains 95% of white matter, the
+            % simulated edema class is retained 100% by kernel_p2, pl2 and the
+            % product, but only 94% by f and 85% by 1-fw.
+            if ~exist('options','var') || isempty(options), options = struct(); end
+            if ~isfield(options,'source'),     options.source = 'p2product'; end
+            if ~isfield(options,'exponent'),   options.exponent = 1; end
+            if ~isfield(options,'clip'),       options.clip = [0 1]; end
+            if ~isfield(options,'degenerate'), options.degenerate = 'clip'; end
+            if ~isfield(options,'floor'),      options.floor = 0; end
+
+            if isnumeric(options.source)
+                p = double(options.source);
+                srcname = 'user supplied map';
+            else
+                srcname = lower(options.source);
+                switch srcname
+                    case 'pl2'
+                        p = SMI.grab_pl(out,1);
+                    case 'pl4'
+                        p = SMI.grab_pl(out,2);
+                    case 'kernel_p2'
+                        p = SMI.grab_kernel_pl(out,options,0);
+                    case 'kernel_p4'
+                        p = SMI.grab_kernel_pl(out,options,1);
+                    case 'p2product'
+                        p = SMI.grab_kernel_pl(out,options,0) .* SMI.grab_pl(out,1);
+                    otherwise
+                        error('SMI:fODF_ModulationWeight','unknown options.source ''%s''',options.source);
+                end
+            end
+
+            p(~isfinite(p)) = 0;
+            degenerate = p > options.clip(2);
+            w = p;
+            if strcmpi(options.degenerate,'reject')
+                w(degenerate) = 0;
+            else
+                w(degenerate) = options.clip(2);
+            end
+            w = max(w, options.clip(1));
+            w = w.^options.exponent;
+            w = max(w, options.floor);
+
+            info = struct();
+            info.source            = srcname;
+            info.raw               = p;
+            info.exponent          = options.exponent;
+            info.clip              = options.clip;
+            info.degenerate_rule   = options.degenerate;
+            info.floor             = options.floor;
+            info.Ndegenerate       = sum(degenerate(:));
+            info.fraction_degenerate = mean(degenerate(:));
+        end
+        % =================================================================
+        function [sh,w,info] = modulate_fODF(out,options)
+            % [sh,w,info] = SMI.modulate_fODF(out,options)
+            %
+            % Applies an anisotropy weight to the fODF so that its AMPLITUDE
+            % carries orientational coherence, the way an MRtrix FOD carries
+            % apparent fibre density.
+            %
+            % The SMI fODF is stored in the normalized convention p_00 = 1, so
+            % it integrates to 1 in EVERY voxel: a CSF voxel and a coherent
+            % white matter voxel produce fODFs of equal total mass. Its
+            % isotropic floor is 1/(4*pi) = 0.0796, already above the default
+            % iFOD2 cutoff of 0.05, so an unmodulated SMI fODF passes the
+            % MRtrix termination test everywhere in the brain, CSF included.
+            % Weighting restores the amplitude information the normalization
+            % removed.
+            %
+            % options are those of SMI.fODF_ModulationWeight, plus
+            %
+            % options.mode
+            %   'density'  (default) scale ALL coefficients including l=0, so
+            %              fODF -> w*fODF. Shape and peak orientation are
+            %              unchanged, total mass becomes w. This is the
+            %              AFD-like operation and the one tractography needs.
+            %   'shape'    scale only l>0, leaving mass at 1 and making the
+            %              fODF sharper or flatter. This is what the Tikhonov
+            %              term of the deconvolution already does implicitly.
+            %
+            % OUTPUT. sh is [X Y Z Nlm] real even order SH coefficients in
+            % SMI's own basis (SMI.get_even_SH with out.CS_phase), INCLUDING
+            % the l=0 term, which out.plm does not store:
+            %
+            %     sh(l=0) = w/sqrt(4*pi)
+            %     sh(l>0) = w .* out.plm .* sqrt((2l+1)/(4*pi))
+            %
+            % The l=0 term must be carried, otherwise the density weighting is
+            % lost. In 'density' mode p_00 is no longer 1 by construction; that
+            % is the point, but it means the result is NOT in the convention
+            % the rest of this toolbox assumes. Document which convention a
+            % saved NIfTI is in.
+            %
+            % Note that SMI's SH basis is not necessarily MRtrix's. Verify the
+            % ordering and the Condon-Shortley convention before feeding the
+            % result to MRtrix.
+            %
+            % ORDER OF OPERATIONS. If the fODF peaks are truncated to remove
+            % deconvolution blow-ups, truncate BEFORE modulating: truncation
+            % thresholds are absolute amplitudes, and modulation rescales them.
+            if ~exist('options','var') || isempty(options), options = struct(); end
+            if ~isfield(options,'mode'), options.mode = 'density'; end
+            if ~isfield(out,'plm'), error('SMI:modulate_fODF','out.plm is missing; run SMI.fit with flag_fit_fODF = 1'), end
+
+            [w,info] = SMI.fODF_ModulationWeight(out,options);
+
+            plm = double(out.plm);
+            sz  = size(plm);
+            Nlm = sz(4);
+            Lmax = sqrt(2*Nlm + 9/4) - 3/2;         % out.plm holds l = 2..Lmax
+            if abs(Lmax-round(Lmax)) > 1e-9
+                error('SMI:modulate_fODF','out.plm has %d maps, which is not a valid l=2..Lmax count',Nlm);
+            end
+            Lmax = round(Lmax);
+            L_all = repelem(0:2:Lmax, 2*(0:2:Lmax)+1);   % includes l=0
+
+            sh = zeros([sz(1:3) Nlm+1]);
+            sh(:,:,:,1) = 1;
+            sh(:,:,:,2:end) = plm;
+            % normalized plm -> SH coefficients (see the convention note above)
+            for k = 1:Nlm+1
+                sh(:,:,:,k) = sh(:,:,:,k) * sqrt((2*L_all(k)+1)/(4*pi));
+            end
+
+            if strcmpi(options.mode,'density')
+                sh = sh .* repmat(w,[1 1 1 Nlm+1]);
+            elseif strcmpi(options.mode,'shape')
+                sh(:,:,:,2:end) = sh(:,:,:,2:end) .* repmat(w,[1 1 1 Nlm]);
+            else
+                error('SMI:modulate_fODF','unknown options.mode ''%s''',options.mode);
+            end
+            sh(~isfinite(sh)) = 0;
+
+            info.mode = options.mode;
+            info.Lmax = Lmax;
+        end
+        % =================================================================
         function [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
             % [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
 
