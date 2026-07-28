@@ -1,0 +1,1376 @@
+From 16b881eb7166c0ae0e01afa529180e4e7af264bf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 28 Jul 2026 00:30:23 +0000
+Subject: [PATCH 1/3] Modulate the fODF by anisotropy to suppress noisy GM and
+ CSF
+
+The SMI fODF is stored with p_00 = 1, so it integrates to 1 in every voxel
+and its isotropic floor is a fixed 1/(4*pi) = 0.0796. MRtrix's default iFOD2
+-cutoff is 0.05, so an unmodulated SMI fODF passes the termination test
+everywhere in the brain, CSF included: 100% of simulated GM and CSF voxels
+survive it. Density weighting by orientational coherence restores the
+amplitude information the normalization removed.
+
+Adds SMI.fODF_ModulationWeight (per voxel weight in [0,1]) and
+SMI.modulate_fODF (applies it, returning SH coefficients including the l=0
+term that out.plm does not store), plus grab_pl/grab_kernel_pl accessors.
+Additions only; existing code paths are untouched, so fits without
+modulation are bit-identical.
+
+Measured on a 7 class simulation at SNR 30 and 15, with and without the
+regularized deconvolution (example_fODF_modulation.m,
+REPORT_fODF_modulation.md):
+
+- The default weight is the product of the two independent p2 estimates,
+  out.kernel(p2) .* out.pl(:,:,:,1). They fail in opposite ways. The kernel
+  p2 does not fall to 0 in CSF (median 0.31 against a true 0) because its
+  polynomial regression returns roughly the prior mean where the l=2 signal
+  is uninformative; alone it leaves 54-80% of CSF above cutoff. The
+  deconvolved pl2 is unbiased but has a noise tail; alone it leaves 20-41%
+  at SNR 15. The product reaches 0% in three of four conditions.
+
+- p4 is rejected in both flavours. The kernel p4 carries the same upward
+  bias, and the deconvolved pl4 is damped far harder than l=2 by the
+  Tikhonov term (0.26 in single fibre WM against a true 0.71), so weighting
+  by it leaves 84% of CSF above cutoff, worse than not weighting at all.
+
+- Anisotropy weights preserve edema where tissue fraction weights do not.
+  Under the cutoff retaining 95% of white matter, the simulated edema class
+  is kept 100% by every p2 weight, but only 94% by f and 85% by 1-fw.
+
+- Modulation does not substitute for regularization. At SNR 15 the
+  unregularized deconvolution produced CSF peaks up to 2.2e14, reproducing
+  the amplitudes seen in real data; the regularized fit caps the same voxels
+  at 0.45. The weight is clipped at 1, so it cannot rescue a blown-up voxel.
+
+Helpers live in fODF_modulation_helpers.m rather than as local functions at
+the end of the example, because MATLAB requires local functions at the end
+of a script while Octave cannot call them there, and this keeps the example
+runnable and testable outside MATLAB.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01QW525oRotCnn6M4gCmS8cP
+---
+ REPORT_fODF_modulation.md | 263 +++++++++++++++++++++++++++++++++++
+ SMI.m                     | 281 ++++++++++++++++++++++++++++++++++++++
+ example_fODF_modulation.m | 175 ++++++++++++++++++++++++
+ fODF_modulation_helpers.m |  93 +++++++++++++
+ 4 files changed, 812 insertions(+)
+ create mode 100644 REPORT_fODF_modulation.md
+ create mode 100644 example_fODF_modulation.m
+ create mode 100644 fODF_modulation_helpers.m
+
+diff --git a/REPORT_fODF_modulation.md b/REPORT_fODF_modulation.md
+new file mode 100644
+index 0000000..9e801e9
+--- /dev/null
++++ b/REPORT_fODF_modulation.md
+@@ -0,0 +1,263 @@
++# Modulating the SMI fODF by anisotropy
++
++Measurement report for `SMI.fODF_ModulationWeight` and `SMI.modulate_fODF`.
++Everything below is measured, not assumed; the simulation is
++`example_fODF_modulation.m`.
++
++---
++
++## 1. Why the fODF needs modulating at all
++
++`out.plm` is stored in the normalized convention `p_00 = 1`, so
++
++```
++A(u) = 1/(4*pi) + sum_{l>=2,m} f_lm Y_lm(u)
++```
++
++and the fODF integrates to **1 in every voxel**. An isotropic CSF voxel and a
++tightly coherent white matter voxel carry the same total mass. The `1/(4*pi)`
++isotropic floor is a fixed offset, and
++
++```
++1/(4*pi) = 0.0796  >  0.05 = MRtrix's default iFOD2 -cutoff
++```
++
++**An unmodulated SMI fODF passes MRtrix's termination test in every voxel of the
++brain, CSF included.** Measured across all four conditions below, 100% of GM and
++100% of CSF voxels survive the default cutoff. The tracker has no amplitude
++information left to terminate on. That is the gap modulation closes.
++
++Two distinct operations, which must not be conflated:
++
++| | operation | effect |
++|---|---|---|
++| **density** | scale all coefficients including `l=0` | `fODF -> w*fODF`. Shape and peak orientation unchanged, mass becomes `w`. AFD-like; **this is what tractography needs.** |
++| **shape** | scale only `l>0` | mass stays 1, fODF sharpens or flattens. This is what the Tikhonov term already does implicitly. |
++
++`SMI.modulate_fODF` defaults to `density`.
++
++---
++
++## 2. Simulation
++
++Seven voxel classes x 200 noise realizations, 6 shells
++(b = 0,1,2,3,4.5,6 ms/um^2, `Lmax = [0 2 2 2 4 4]`), Rician noise, fitted through
++the real `SMI.fit`, at SNR 30 and 15, with and without the regularized
++deconvolution (`lambda_nonneg = 10`, `lambda_tikhonov = 0.3`).
++
++| class | kernel `[f Da Depar Deperp fw]` | fODF |
++|---|---|---|
++| WM single | `0.60 2.0 2.0 0.50 0.05` | Watson, kappa 16 |
++| WM crossing 60 deg | same | two Watsons at 60 deg |
++| **WM in edema** | `0.30 2.0 2.2 1.00 0.50` | Watson, kappa 12 |
++| GM | `0.15 1.2 1.0 0.80 0.10` | Watson, kappa 0.8 |
++| CSF | `0.02 2.0 3.0 3.00 0.95` | isotropic |
++| WM/CSF interface | 50/50 signal mix | independent orientations |
++| WM/GM interface | 50/50 signal mix | independent orientations |
++
++The edema class is the control that matters. Its `f` has collapsed and its `fw`
++is 0.50, but its fibres are still coherent. **Any weight that suppresses it along
++with GM and CSF is a tissue-type criterion in disguise and must be rejected** —
++it would delete exactly the peritumoral region the tractography is for.
++
++The forward model is the same construction `SMI.get_plm_from_S_and_kernel`
++inverts, so it round-trips to `max|error| = 1.2e-15` with the true kernel and no
++noise. Ground-truth `p2`/`p4` reproduce `out.pl` to 4 decimals.
++
++---
++
++## 3. The four candidate anisotropy maps
++
++Medians per class. `p2_t`/`p4_t` are ground truth; `k_p2`/`k_p4` are
++`out.kernel`; `pl2`/`pl4` are `out.pl`.
++
++**SNR 30, regularized**
++
++| class | p2_t | p4_t | k_p2 | k_p4 | pl2 | pl4 | fODF peak |
++|---|---|---|---|---|---|---|---|
++| WM single | 0.90 | 0.71 | 0.725 | 0.505 | 0.654 | 0.222 | 0.496 |
++| WM crossing 60 | 0.60 | 0.42 | 0.498 | 0.329 | 0.470 | 0.135 | 0.287 |
++| WM in edema | 0.87 | 0.63 | 0.605 | 0.402 | 0.537 | 0.276 | 0.489 |
++| GM | 0.11 | 0.01 | 0.098 | 0.157 | 0.088 | 0.149 | 0.168 |
++| **CSF** | **0.00** | **0.00** | **0.306** | **0.196** | **0.076** | 0.149 | 0.169 |
++| WM/CSF interface | 0.90 | 0.71 | 0.618 | 0.419 | 0.564 | 0.270 | 0.494 |
++| WM/GM interface | 0.90 | 0.71 | 0.576 | 0.461 | 0.551 | 0.275 | 0.493 |
++
++Three things to read off this table.
++
++**The kernel `p2` has a floor in CSF.** True value 0, estimated 0.306. The
++polynomial regression is trained on a prior of tissue kernels; where the `l=2`
++signal carries no information it returns roughly the prior mean rather than 0.
++`pl2` has no such floor (0.076) because it is a direct projection of the measured
++signal. This is the opposite of what one might guess — the kernel `p2` is the
++*stabler* estimate but the *biased* one.
++
++**`p4` is worse than `p2` on both counts.** The kernel `p4` carries the same
++upward bias (0.196 in CSF against a true 0), and it is bounded above by the
++training prior, which draws `p4 = rand * p2 * 0.9`. The deconvolved `pl4` is
++destroyed by the Tikhonov term, which damps `l=4` far harder than `l=2`: 0.222 in
++single-fibre WM against a true 0.71. **Weighting by `pl4` after a regularized fit
++measures the regularizer, not the tissue.**
++
++**The edema class keeps a high `p2`.** 0.605 (kernel) and 0.537 (deconvolved),
++against 0.725/0.654 for healthy single-fibre WM — a modest drop, while its `f`
++has halved. This is the empirical answer to the open question in the handoff: `p2`
++does hold up in edematous voxels.
++
++---
++
++## 4. Where the 1e13 peaks come from
++
++At SNR 15 **without** regularization, the CSF class produced
++`peak p99 = 1.9e12` and `peak max = 2.2e14` — reproducing the 1e13 amplitudes
++seen in real data. The mechanism is the deconvolution's noise-amplification gain
++
++```
++g_2 = 1 / || K_2(b) ||
++```
++
++measured at 3.6 in CSF against 0.6 in WM. `p_2m` is recovered by dividing the
++`l=2` signal harmonic by `K_2`, and in a nearly isotropic voxel `K_2 -> 0`.
++
++**The regularized deconvolution removes this completely**: same voxels, same
++noise, `peak max = 0.449`. That is independent confirmation that the existing
++regularization work is load-bearing, and modulation should be applied on top of
++it, not instead of it.
++
++---
++
++## 5. Scoring
++
++### 5.1 Fraction of voxels left above the MRtrix default cutoff of 0.05
++
++Weights clipped at 1 (a physical `p_l` cannot exceed 1; a larger value means the
++deconvolution failed and must not amplify the voxel).
++
++**SNR 30, regularized**
++
++| class | none | kernel p2 | kernel p2^2 | pl2 | pl2^2 | **p2product** |
++|---|---|---|---|---|---|---|
++| WM single | 100% | 100% | 100% | 100% | 100% | 100% |
++| WM crossing 60 | 100% | 100% | 100% | 100% | 100% | 100% |
++| WM in edema | 100% | 100% | 100% | 100% | 100% | 100% |
++| GM | 100% | 0% | 0% | 0% | 0% | **0%** |
++| CSF | 100% | 65% | 0% | 0% | 0% | **0%** |
++| WM/CSF interface | 100% | 100% | 100% | 100% | 100% | 100% |
++| WM/GM interface | 100% | 100% | 100% | 100% | 100% | 100% |
++
++**SNR 15, regularized**
++
++| class | none | kernel p2 | kernel p2^2 | pl2 | pl2^2 | **p2product** |
++|---|---|---|---|---|---|---|
++| WM single | 100% | 100% | 100% | 100% | 100% | 100% |
++| WM crossing 60 | 100% | 100% | 94% | 100% | 86% | **92%** |
++| WM in edema | 100% | 100% | 100% | 100% | 100% | 100% |
++| GM | 100% | 0% | 0% | 0% | 0% | **0%** |
++| CSF | 100% | 54% | 0% | 20% | 1% | **0%** |
++| WM/CSF interface | 100% | 100% | 100% | 100% | 100% | 100% |
++| WM/GM interface | 100% | 100% | 100% | 100% | 100% | 100% |
++
++`kernel_p2` alone is not enough — it leaves 54-80% of CSF above cutoff across the
++four conditions, because of its CSF floor. `pl2` alone leaves 20-41% at SNR 15,
++because of its noise tail. The product removes both, reaching 0% in three of the
++four conditions and 4.5% in the fourth (SNR 15 unregularized).
++
++`p4` is not shown because it is disqualified: `pl4` at SNR 15 regularized leaves
++**84% of CSF** above cutoff, which is worse than not weighting at all.
++
++### 5.2 Adaptive cutoff test
++
++Threshold `T` chosen to retain 95% of all white matter **including the edema
++class**, then the fraction of GM+CSF still above `T`. A weight that only wins by
++discarding edema cannot win here, because `T` is forced down to keep it.
++
++**SNR 15, regularized**
++
++| weight | FP GM+CSF | keep edema | separation |
++|---|---|---|---|
++| none | 10.5% | 100% | 1.39 |
++| kernel p2 | 0.0% | 100% | 2.45 |
++| kernel p2^2 | 0.0% | 100% | 4.25 |
++| pl2 | 0.8% | 100% | 2.25 |
++| pl4 | 60.0% | 100% | 1.52 |
++| **p2product** | **0.0%** | **100%** | **4.15** |
++| `f` *(tissue-type reference)* | 0.0% | **94%** | 2.58 |
++| `1-fw` *(tissue-type reference)* | 31.5% | **85%** | 0.86 |
++
++The last two rows are the quantitative case against tissue-fraction weights.
++`f` and `1-fw` discard 6% and 15% of the edema class respectively, while every
++`p2`-based weight keeps 100% of it. `1-fw` additionally fails at its own job,
++leaving 63% of GM above threshold.
++
++Separation across all four conditions for the default weight: 27.3 / 24.1
++(SNR 30 unreg/reg) and 2.0 / 4.2 (SNR 15 unreg/reg), against an unweighted
++baseline of 2.6 / 2.3 / 0.9 / 1.4.
++
++---
++
++## 6. Recommendation
++
++**Default: `source = 'p2product'`, `mode = 'density'`, `exponent = 1`** — the
++product of the two independent `p2` estimates, `out.kernel(p2) .* out.pl(:,:,:,1)`.
++A voxel is kept only if both estimates agree it is coherent, which cancels the
++kernel estimate's CSF floor against the deconvolved estimate's noise tail.
++
++```matlab
++[sh, w, info] = SMI.modulate_fODF(out);            % defaults
++[sh, w, info] = SMI.modulate_fODF(out, struct('source','kernel_p2','exponent',2));
++```
++
++- `kernel_p2` with `exponent = 2` is the near-equal alternative, and the only
++  option available when `flag_fit_fODF = 0`.
++- **Do not use `p4`**, in either flavour.
++- **Run the regularized deconvolution.** Modulation does not repair a blown-up
++  voxel: the weight is clipped at 1, so `w * 1e13` is still `1e13`. The
++  regularizer is what prevents the blow-up.
++
++### Caveats
++
++- These are simulations. `p2` in real edema should be checked against a known
++  ROI before this is trusted clinically; the simulated edema class assumes fibres
++  stay coherent, which is the assumption the whole approach rests on.
++- Squaring the weight costs crossing fibres at low SNR (94% retained at SNR 15,
++  vs 100% at exponent 1). Crossings have genuinely lower `p2`, so any exponent
++  above 1 penalizes them. Keep `exponent = 1` unless CSF suppression is
++  insufficient.
++- The fixed 0.05 comparisons assume the MRtrix cutoff is left at its default.
++  Modulation lowers the overall amplitude scale, so the cutoff may want retuning;
++  the adaptive test in 5.2 is the scale-free comparison.
++
++### Order of operations
++
++1. `SMI.fit` with the regularized deconvolution
++2. peak truncation, if used — its thresholds are **absolute amplitudes**, so it
++   must run **before** modulation or be re-derived after
++3. `SMI.modulate_fODF`
++4. write NIfTI
++
++### Convention warning
++
++In `density` mode `p_00` is no longer 1 — that is the point, but it means the
++result is **not** in the convention the rest of the toolbox assumes. `sh`
++includes the `l=0` term, which `out.plm` does not store; without it the density
++weighting would be lost. Document which convention a saved NIfTI is in.
++
++`sh` is in SMI's own SH basis (`SMI.get_even_SH` with `out.CS_phase`). **Verify
++the coefficient ordering and the Condon-Shortley convention against MRtrix's
++basis before feeding it to `tckgen`** — this has not been checked here.
++
++---
++
++## 7. Files
++
++| file | contents |
++|---|---|
++| `SMI.m` | `grab_pl`, `grab_kernel_pl`, `fODF_ModulationWeight`, `modulate_fODF` (additions only; existing code paths untouched, so fits without modulation are bit-identical) |
++| `example_fODF_modulation.m` | the simulation and scoring above |
++| `REPORT_fODF_modulation.md` | this file |
++
++`out.kernel` layout is `[f Da Depar Deperp fw (T2a T2e) p2 (p4) (p6)]`, so `p2`
++sits at index 6 without T2 fitting and 8 with it. The map count alone is
++ambiguous (7 maps is either `[f Da Depar Deperp fw p2 p4]` or
++`[f Da Depar Deperp fw T2a T2e]`), so variable TE is detected from `out.shells`
++row 4. Override with `options.kernel_p2_index` if that is ever wrong.
+diff --git a/SMI.m b/SMI.m
+index 95136d7..e0a51a5 100644
+--- a/SMI.m
++++ b/SMI.m
+@@ -926,6 +926,287 @@ classdef SMI
+             dirs = [r.*cos(phi), r.*sin(phi), z];
+         end
+         % =================================================================
++        function p = grab_pl(out,which_l)
++            % p = SMI.grab_pl(out,which_l)
++            %
++            % out.pl(:,:,:,which_l), the rotational invariant of the
++            % deconvolved fODF for l = 2*which_l. Helper for
++            % SMI.fODF_ModulationWeight.
++            if ~isfield(out,'pl') || isempty(out.pl)
++                error('SMI:grab_pl','out.pl is missing; run SMI.fit with flag_fit_fODF = 1');
++            end
++            if size(out.pl,4) < which_l
++                error('SMI:grab_pl','out.pl has no l=%d term; Lmax must be at least %d',2*which_l,2*which_l);
++            end
++            p = double(out.pl(:,:,:,which_l));
++        end
++        % =================================================================
++        function p = grab_kernel_pl(out,options,offset)
++            % p = SMI.grab_kernel_pl(out,options,offset)
++            %
++            % out.kernel(:,:,:,ip2+offset): p2 (offset 0) or p4 (offset 1) as
++            % estimated with the kernel. Helper for
++            % SMI.fODF_ModulationWeight.
++            %
++            % The kernel layout is [f Da Depar Deperp fw (T2a T2e) p2 (p4) (p6)],
++            % so p2 sits at index 6 without T2 fitting and at index 8 with it.
++            % The number of maps alone is ambiguous (7 maps is either
++            % [f Da Depar Deperp fw p2 p4] or [f Da Depar Deperp fw T2a T2e]),
++            % so variable TE is detected from out.shells, whose 4th row is TE.
++            if ~isfield(out,'kernel') || isempty(out.kernel)
++                error('SMI:grab_kernel_pl','out.kernel is missing');
++            end
++            Nk = size(out.kernel,4);
++            if isfield(options,'kernel_p2_index') && ~isempty(options.kernel_p2_index)
++                ip2 = options.kernel_p2_index;
++            else
++                fit_T2 = false;
++                if isfield(out,'shells') && ~isempty(out.shells) && size(out.shells,1) >= 4
++                    % TE is compared with a tolerance of 1e-1 elsewhere in SMI
++                    fit_T2 = (max(out.shells(4,:)) - min(out.shells(4,:))) > 1e-1;
++                end
++                ip2 = 6 + 2*fit_T2;
++            end
++            if Nk < ip2 + offset
++                error('SMI:grab_kernel_pl', ...
++                    ['out.kernel has %d maps, so it does not contain p%d at index %d. ' ...
++                     'RotInv_Lmax must be at least %d; if the layout is being ' ...
++                     'misdetected set options.kernel_p2_index explicitly.'], ...
++                    Nk, 2+2*offset, ip2+offset, 2+2*offset);
++            end
++            p = double(out.kernel(:,:,:,ip2+offset));
++        end
++        % =================================================================
++        function [w,info] = fODF_ModulationWeight(out,options)
++            % [w,info] = SMI.fODF_ModulationWeight(out,options)
++            %
++            % Per voxel weight in [0,1] measuring how orientationally COHERENT a
++            % voxel is, for use as a density weight on the fODF (see
++            % SMI.modulate_fODF). It is deliberately NOT a tissue type
++            % criterion: fibres displaced by edema stay coherent and keep a
++            % high weight even when their axonal fraction f collapses, so
++            % peritumoral tissue is not deleted the way an f or 1-fw threshold
++            % deletes it.
++            %
++            % out       the structure returned by SMI.fit. Must contain the
++            %           field the chosen source needs (see below).
++            %
++            % There are two independent estimates of p2 in the output, and they
++            % fail in opposite ways, so the default weight is their product.
++            %
++            % options.source    which anisotropy map to build the weight from:
++            %   'p2product' (default) kernel_p2 .* pl2. A voxel is kept only if
++            %               BOTH estimates agree that it is coherent.
++            %   'pl2'       out.pl(:,:,:,1), the l=2 rotational invariant of the
++            %               DECONVOLVED fODF. Unbiased in CSF but inherits the
++            %               deconvolution's noise, so it has a heavy tail.
++            %   'kernel_p2' out.kernel(:,:,:,ip2), p2 estimated jointly with the
++            %               kernel by the polynomial regression on rotational
++            %               invariants. Stable, and available even when
++            %               flag_fit_fODF=0, but biased upward in CSF. Use
++            %               exponent 2 with this source.
++            %   'pl4'       out.pl(:,:,:,2), the l=4 invariant of the fODF.
++            %               Requires Lmax>=4. NOT recommended, see below.
++            %   'kernel_p4' the kernel p4, present only when RotInv_Lmax>=4.
++            %               NOT recommended, see below.
++            %   numeric     a [X Y Z] map supplied directly by the caller.
++            %
++            % options.kernel_p2_index  index of p2 within out.kernel. Normally
++            %                   inferred (6 without T2 fitting, 8 with), using
++            %                   out.shells to detect variable TE. Set it
++            %                   explicitly if that inference is wrong.
++            %
++            % options.exponent  w = p.^exponent (default 1). Larger values
++            %                   sharpen the contrast between coherent and
++            %                   incoherent voxels.
++            % options.clip      [lo hi] applied to p BEFORE the exponent
++            %                   (default [0 1]). A physical fODF has p_l<=1,
++            %                   so values above 1 mean the deconvolution has
++            %                   failed in that voxel.
++            % options.degenerate  what to do where p exceeds clip(2), i.e.
++            %                   where the deconvolution has blown up:
++            %   'clip'      (default) pull the weight down to clip(2)
++            %   'reject'    set the weight to 0, removing the voxel
++            % options.floor     lower bound applied to w AFTER the exponent
++            %                   (default 0).
++            %
++            % info returns the raw map, the count of degenerate voxels, and the
++            % options actually used.
++            %
++            % WHY THE PRODUCT, AND WHY NOT p4
++            %
++            % Measured on a 7 class simulation, regularized deconvolution at
++            % SNR 15 (see example_fODF_modulation.m and
++            % REPORT_fODF_modulation.md). Fraction of voxels left above
++            % MRtrix's default iFOD2 cutoff of 0.05:
++            %
++            %                    unweighted  kernel_p2  kernel_p2^2  pl2  product
++            %   WM single fibre        100%       100%         100%  100%    100%
++            %   WM crossing 60         100%       100%          94%  100%    100%
++            %   WM in edema            100%       100%         100%  100%    100%
++            %   GM                     100%         0%           0%    0%      0%
++            %   CSF                    100%        54%           0%   20%      0%
++            %
++            % Unweighted, EVERY voxel in the brain survives MRtrix's default
++            % cutoff, CSF included, because the normalized fODF has a fixed
++            % isotropic floor of 1/(4*pi) = 0.0796 > 0.05.
++            %
++            % kernel_p2 alone does not fall to 0 in CSF. Its polynomial
++            % regression is trained on a prior of tissue kernels, and where the
++            % l=2 signal carries no information the fit returns roughly the
++            % prior mean (median 0.31 in simulated CSF at SNR 30, against a
++            % true value of 0) instead of 0. pl2 has no such floor (median
++            % 0.076) because it is a direct projection of the measured signal,
++            % but it inherits the deconvolution's noise and so has a heavy
++            % tail. The product removes both failure modes.
++            %
++            % p4 is worse than p2 on both counts. The kernel p4 is biased
++            % upward in the same way, and the deconvolved pl4 is destroyed by
++            % the Tikhonov term of the regularized deconvolution, which damps
++            % l=4 far harder than l=2 (median 0.26 in single fibre WM at SNR 15
++            % against a true 0.71). Weighting by pl4 after a regularized fit
++            % leaves 84% of CSF above cutoff -- worse than not weighting at
++            % all. It measures the regularizer, not the tissue.
++            %
++            % Anisotropy weights, unlike tissue fraction weights, preserve
++            % edema. Under the cutoff that retains 95% of white matter, the
++            % simulated edema class is retained 100% by kernel_p2, pl2 and the
++            % product, but only 94% by f and 85% by 1-fw.
++            if ~exist('options','var') || isempty(options), options = struct(); end
++            if ~isfield(options,'source'),     options.source = 'p2product'; end
++            if ~isfield(options,'exponent'),   options.exponent = 1; end
++            if ~isfield(options,'clip'),       options.clip = [0 1]; end
++            if ~isfield(options,'degenerate'), options.degenerate = 'clip'; end
++            if ~isfield(options,'floor'),      options.floor = 0; end
++
++            if isnumeric(options.source)
++                p = double(options.source);
++                srcname = 'user supplied map';
++            else
++                srcname = lower(options.source);
++                switch srcname
++                    case 'pl2'
++                        p = SMI.grab_pl(out,1);
++                    case 'pl4'
++                        p = SMI.grab_pl(out,2);
++                    case 'kernel_p2'
++                        p = SMI.grab_kernel_pl(out,options,0);
++                    case 'kernel_p4'
++                        p = SMI.grab_kernel_pl(out,options,1);
++                    case 'p2product'
++                        p = SMI.grab_kernel_pl(out,options,0) .* SMI.grab_pl(out,1);
++                    otherwise
++                        error('SMI:fODF_ModulationWeight','unknown options.source ''%s''',options.source);
++                end
++            end
++
++            p(~isfinite(p)) = 0;
++            degenerate = p > options.clip(2);
++            w = p;
++            if strcmpi(options.degenerate,'reject')
++                w(degenerate) = 0;
++            else
++                w(degenerate) = options.clip(2);
++            end
++            w = max(w, options.clip(1));
++            w = w.^options.exponent;
++            w = max(w, options.floor);
++
++            info = struct();
++            info.source            = srcname;
++            info.raw               = p;
++            info.exponent          = options.exponent;
++            info.clip              = options.clip;
++            info.degenerate_rule   = options.degenerate;
++            info.floor             = options.floor;
++            info.Ndegenerate       = sum(degenerate(:));
++            info.fraction_degenerate = mean(degenerate(:));
++        end
++        % =================================================================
++        function [sh,w,info] = modulate_fODF(out,options)
++            % [sh,w,info] = SMI.modulate_fODF(out,options)
++            %
++            % Applies an anisotropy weight to the fODF so that its AMPLITUDE
++            % carries orientational coherence, the way an MRtrix FOD carries
++            % apparent fibre density.
++            %
++            % The SMI fODF is stored in the normalized convention p_00 = 1, so
++            % it integrates to 1 in EVERY voxel: a CSF voxel and a coherent
++            % white matter voxel produce fODFs of equal total mass. Its
++            % isotropic floor is 1/(4*pi) = 0.0796, already above the default
++            % iFOD2 cutoff of 0.05, so an unmodulated SMI fODF passes the
++            % MRtrix termination test everywhere in the brain, CSF included.
++            % Weighting restores the amplitude information the normalization
++            % removed.
++            %
++            % options are those of SMI.fODF_ModulationWeight, plus
++            %
++            % options.mode
++            %   'density'  (default) scale ALL coefficients including l=0, so
++            %              fODF -> w*fODF. Shape and peak orientation are
++            %              unchanged, total mass becomes w. This is the
++            %              AFD-like operation and the one tractography needs.
++            %   'shape'    scale only l>0, leaving mass at 1 and making the
++            %              fODF sharper or flatter. This is what the Tikhonov
++            %              term of the deconvolution already does implicitly.
++            %
++            % OUTPUT. sh is [X Y Z Nlm] real even order SH coefficients in
++            % SMI's own basis (SMI.get_even_SH with out.CS_phase), INCLUDING
++            % the l=0 term, which out.plm does not store:
++            %
++            %     sh(l=0) = w/sqrt(4*pi)
++            %     sh(l>0) = w .* out.plm .* sqrt((2l+1)/(4*pi))
++            %
++            % The l=0 term must be carried, otherwise the density weighting is
++            % lost. In 'density' mode p_00 is no longer 1 by construction; that
++            % is the point, but it means the result is NOT in the convention
++            % the rest of this toolbox assumes. Document which convention a
++            % saved NIfTI is in.
++            %
++            % Note that SMI's SH basis is not necessarily MRtrix's. Verify the
++            % ordering and the Condon-Shortley convention before feeding the
++            % result to MRtrix.
++            %
++            % ORDER OF OPERATIONS. If the fODF peaks are truncated to remove
++            % deconvolution blow-ups, truncate BEFORE modulating: truncation
++            % thresholds are absolute amplitudes, and modulation rescales them.
++            if ~exist('options','var') || isempty(options), options = struct(); end
++            if ~isfield(options,'mode'), options.mode = 'density'; end
++            if ~isfield(out,'plm'), error('SMI:modulate_fODF','out.plm is missing; run SMI.fit with flag_fit_fODF = 1'), end
++
++            [w,info] = SMI.fODF_ModulationWeight(out,options);
++
++            plm = double(out.plm);
++            sz  = size(plm);
++            Nlm = sz(4);
++            Lmax = sqrt(2*Nlm + 9/4) - 3/2;         % out.plm holds l = 2..Lmax
++            if abs(Lmax-round(Lmax)) > 1e-9
++                error('SMI:modulate_fODF','out.plm has %d maps, which is not a valid l=2..Lmax count',Nlm);
++            end
++            Lmax = round(Lmax);
++            L_all = repelem(0:2:Lmax, 2*(0:2:Lmax)+1);   % includes l=0
++
++            sh = zeros([sz(1:3) Nlm+1]);
++            sh(:,:,:,1) = 1;
++            sh(:,:,:,2:end) = plm;
++            % normalized plm -> SH coefficients (see the convention note above)
++            for k = 1:Nlm+1
++                sh(:,:,:,k) = sh(:,:,:,k) * sqrt((2*L_all(k)+1)/(4*pi));
++            end
++
++            if strcmpi(options.mode,'density')
++                sh = sh .* repmat(w,[1 1 1 Nlm+1]);
++            elseif strcmpi(options.mode,'shape')
++                sh(:,:,:,2:end) = sh(:,:,:,2:end) .* repmat(w,[1 1 1 Nlm]);
++            else
++                error('SMI:modulate_fODF','unknown options.mode ''%s''',options.mode);
++            end
++            sh(~isfinite(sh)) = 0;
++
++            info.mode = options.mode;
++            info.Lmax = Lmax;
++        end
++        % =================================================================
+         function [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
+             % [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
+ 
+diff --git a/example_fODF_modulation.m b/example_fODF_modulation.m
+new file mode 100644
+index 0000000..bcd39de
+--- /dev/null
++++ b/example_fODF_modulation.m
+@@ -0,0 +1,175 @@
++% example_fODF_modulation.m
++%
++% Modulating the SMI fODF by orientational coherence (p2), so that its
++% amplitude separates coherent tissue from grey matter and CSF the way an
++% MRtrix FOD does -- without using a tissue type criterion, which would delete
++% peritumoral edema, the region of interest.
++%
++% Full methodology and results: REPORT_fODF_modulation.md
++%
++% THE PROBLEM
++%
++% out.plm is stored in the normalized convention p_00 = 1, so the fODF
++% integrates to 1 in EVERY voxel and its isotropic floor is a fixed
++% 1/(4*pi) = 0.0796. MRtrix's default iFOD2 termination threshold is
++% -cutoff 0.05. The floor is above the threshold, so an unmodulated SMI fODF
++% passes MRtrix's termination test everywhere in the brain, CSF included, and
++% the tracker loses its ability to tell tissue from non-tissue by amplitude.
++%
++% THE EXPERIMENT
++%
++% Seven voxel classes, 200 noise realizations each, run through SMI.fit twice
++% (unregularized and regularized deconvolution) at two SNRs. The third class,
++% white matter inside edema, is the one that must survive: its axonal fraction
++% and free water fraction are edema-like, but its fibres stay coherent. A
++% weight that suppresses GM and CSF while keeping that class is doing what is
++% wanted; a weight that suppresses it too is a tissue type criterion in
++% disguise and must be rejected.
++%
++% Helper functions live in fODF_modulation_helpers.m rather than at the end of
++% this script, so that this example runs under Octave as well as MATLAB.
++%
++% Runtime is a few minutes per arm. Set QUICK = 1 for a smaller version.
++
++clear; close all
++QUICK = 0;
++
++H = fODF_modulation_helpers();
++
++CS_phase = 1; D_FW = 3; Lmax_fod = 4;
++Nreal = 200; if QUICK, Nreal = 20; end
++MRTRIX_CUTOFF = 0.05;
++
++% ---- protocol: 6 shells, Lmax = [0 2 2 2 4 4] ----------------------------
++bvals = [0 1 2 3 4.5 6];
++Ndirs = [8 30 30 60 60 60];
++Lmax_shell = [0 2 2 2 4 4];
++b = []; dirs = [];
++for k = 1:numel(bvals)
++    dirs = [dirs; H.dirs(Ndirs(k))];
++    b    = [b; bvals(k)*ones(Ndirs(k),1)];
++end
++beta = ones(size(b)); TE = zeros(size(b)); Ndwi = numel(b);
++
++K_WM  = [0.60 2.0 2.0 0.50 0.05 1 1];
++K_ED  = [0.30 2.0 2.2 1.00 0.50 1 1];   % edema: low f, high fw, coherent fibres
++K_GM  = [0.15 1.2 1.0 0.80 0.10 1 1];
++K_CSF = [0.02 2.0 3.0 3.00 0.95 1 1];
++
++%          name                kernelA kapA nfibA  kernelB kapB  fraction of A
++tissue = { {'WM single',        K_WM,  16,  1,  [],    0,   1.0}, ...
++           {'WM crossing 60',   K_WM,  16,  2,  [],    0,   1.0}, ...
++           {'WM in edema',      K_ED,  12,  1,  [],    0,   1.0}, ...
++           {'GM',               K_GM,   0.8,1,  [],    0,   1.0}, ...
++           {'CSF',              K_CSF,  0,  1,  [],    0,   1.0}, ...
++           {'WM/CSF interface', K_WM,  16,  1,  K_CSF, 0,   0.5}, ...
++           {'WM/GM interface',  K_WM,  16,  1,  K_GM,  0.8, 0.5} };
++Nclass = numel(tissue);
++names  = cellfun(@(t) t{1}, tissue, 'UniformOutput', false);
++
++dq   = H.dirs(3000);                       % quadrature grid
++de   = H.dirs(2000); de = de(de(:,3)>=0,:); % evaluation grid (hemisphere)
++Nlm  = Lmax_fod*(Lmax_fod+3)/2;
++Nvox = Nreal*Nclass;
++% A genuinely 3D volume: SMI.vectorize takes a different code path if any
++% spatial dimension collapses to a singleton.
++vol  = [Nreal/2 Nclass 2];
++
++SNRs = [30 15];
++store = struct();
++
++for isnr = 1:numel(SNRs)
++  SNR = SNRs(isnr);
++  try, rng(7); catch, rand('seed',7); randn('seed',7); end   % rng is MATLAB only
++  S_flat   = zeros(Ndwi,Nvox);
++  class_id = zeros(1,Nvox);
++  i = 0;
++  for c = 1:Nclass
++    kA = tissue{c}{2}; kapA = tissue{c}{3}; nfibA = tissue{c}{4};
++    kB = tissue{c}{5}; kapB = tissue{c}{6}; vA    = tissue{c}{7};
++    for r = 1:Nreal
++        i = i+1;
++        n1 = randn(1,3); n1 = n1/norm(n1);
++        fod = H.watson(dq,n1,kapA);
++        if nfibA == 2
++            t = randn(1,3); t = t-(t*n1')*n1; t = t/norm(t);
++            fod = fod + H.watson(dq, cos(pi/3)*n1+sin(pi/3)*t, kapA);
++        end
++        pA = H.mixture_plm(fod,dq,Lmax_fod,CS_phase);
++        S  = vA*H.signal(pA,kA,b,beta,TE,dirs,Lmax_fod,CS_phase,D_FW);
++        if ~isempty(kB)
++            m1 = randn(1,3); m1 = m1/norm(m1);
++            pB = H.watson_plm(dq,m1,kapB,Lmax_fod,CS_phase);
++            S  = S + (1-vA)*H.signal(pB,kB,b,beta,TE,dirs,Lmax_fod,CS_phase,D_FW);
++        end
++        % Rician noise; S0 = 1 by construction
++        S_flat(:,i) = sqrt((S+randn(Ndwi,1)/SNR).^2 + (randn(Ndwi,1)/SNR).^2);
++        class_id(i) = c;
++    end
++  end
++
++  opts = struct('b',b,'dirs',dirs,'beta',beta,'TE',TE, ...
++                'sigma',ones(vol)/SNR,'mask',true(vol),'CS_phase',CS_phase, ...
++                'D_FW',D_FW,'Lmax',Lmax_shell,'flag_fit_fODF',1);
++  opts.compartments = {'IAS','EAS','FW'};
++
++  arms = {{'unregularized', struct('flag_nonneg',0,'lambda_tikhonov',0)}, ...
++          {'regularized',   struct('flag_nonneg',1,'lambda_nonneg',10,'lambda_tikhonov',0.3)}};
++  for arm = 1:numel(arms)
++      o = opts;
++      o.fODF_regularization = arms{arm}{2};
++      o.filename_log = sprintf('log_modulation_SNR%d_%s.txt',SNR,arms{arm}{1});
++      fprintf('fitting SNR %d, %s deconvolution ...\n', SNR, arms{arm}{1});
++      store(isnr,arm).name     = arms{arm}{1};
++      store(isnr,arm).SNR      = SNR;
++      store(isnr,arm).out      = SMI.fit(reshape(S_flat',[vol Ndwi]), o);
++      store(isnr,arm).class_id = class_id;
++  end
++end
++
++%% ------------------------------------------------------------------------
++% Scoring. The question tractography actually asks is how many GM and CSF
++% voxels stay above the termination threshold.
++for isnr = 1:numel(SNRs)
++ for arm = 1:2
++    out      = store(isnr,arm).out;
++    class_id = store(isnr,arm).class_id;
++
++    W = {'none',        ones(vol); ...
++         'kernel p2',   SMI.fODF_ModulationWeight(out,struct('source','kernel_p2')); ...
++         'kernel p2^2', SMI.fODF_ModulationWeight(out,struct('source','kernel_p2','exponent',2)); ...
++         'pl2',         SMI.fODF_ModulationWeight(out,struct('source','pl2')); ...
++         'pl4',         SMI.fODF_ModulationWeight(out,struct('source','pl4')); ...
++         'p2product',   SMI.fODF_ModulationWeight(out,struct('source','p2product'))};
++
++    plm = reshape(out.plm,[Nvox size(out.plm,4)])';
++    pk  = zeros(1,Nvox);
++    for i = 1:Nvox, pk(i) = H.peak(plm(:,i),de,Lmax_fod,CS_phase); end
++
++    fprintf('\n=== SNR %d, %s: %% of voxels above the MRtrix cutoff %.2f ===\n', ...
++            SNRs(isnr), store(isnr,arm).name, MRTRIX_CUTOFF);
++    fprintf('%-19s',''); fprintf('%13s',W{:,1}); fprintf('\n');
++    for c = 1:Nclass
++        m = class_id==c;
++        fprintf('%-19s',names{c});
++        for k = 1:size(W,1)
++            wk = W{k,2}(:)';
++            fprintf('%12.1f%%',100*mean(wk(m).*pk(m) > MRTRIX_CUTOFF));
++        end
++        fprintf('\n');
++    end
++ end
++end
++
++%% ------------------------------------------------------------------------
++% Applying the modulation. The result is the SH coefficient array INCLUDING
++% the l=0 term, which out.plm does not store: without it the density weighting
++% would be lost.
++out = store(end,2).out;
++[sh,w,info] = SMI.modulate_fODF(out, struct('source','p2product','mode','density'));
++fprintf(['\nmodulated fODF: %d SH coefficients, weight in [%.3f %.3f], ' ...
++         '%d degenerate voxels, mode ''%s''\n'], ...
++        size(sh,4), min(w(:)), max(w(:)), info.Ndegenerate, info.mode);
++fprintf('NOTE: in density mode p_00 is no longer 1. Record which convention\n');
++fprintf('      a saved NIfTI is in, and check SMI''s SH basis against MRtrix''s\n');
++fprintf('      ordering and Condon-Shortley convention before running tckgen.\n');
+diff --git a/fODF_modulation_helpers.m b/fODF_modulation_helpers.m
+new file mode 100644
+index 0000000..dea5764
+--- /dev/null
++++ b/fODF_modulation_helpers.m
+@@ -0,0 +1,93 @@
++function H = fODF_modulation_helpers()
++% H = fODF_modulation_helpers()
++%
++% Returns a struct of function handles used by example_fODF_modulation.m:
++%
++%   H.dirs(N)                              N nearly uniform directions on the sphere
++%   H.watson_plm(dirs_q,n,kappa,Lmax,CS)   normalized plm of a Watson fODF about n
++%   H.mixture_plm(fodf,dirs_q,Lmax,CS)     normalized plm of an arbitrary sampled fODF
++%   H.watson(dirs_q,n,kappa)               unnormalized Watson amplitudes
++%   H.signal(plm,kernel,b,beta,TE,dirs,Lmax,CS,D_FW)   forward DWI signal
++%   H.peak(plm,dirs_e,Lmax,CS)             fODF peak amplitude and direction
++%
++% These live in their own file, rather than as local functions at the end of
++% the example script, because MATLAB requires local functions at the END of a
++% script while Octave cannot call them there at all. Subfunctions of a function
++% file work in both, which keeps the example runnable and testable outside
++% MATLAB. Same reasoning as fODF_regularization_score.m.
++H = struct();
++H.dirs        = @uniform_sphere_dirs;
++H.watson      = @watson_amp;
++H.watson_plm  = @watson_plm;
++H.mixture_plm = @fodf_to_plm;
++H.signal      = @forward_signal;
++H.peak        = @fodf_peak;
++end
++
++% =====================================================================
++function dirs = uniform_sphere_dirs(N)
++% Golden angle spiral over the full sphere, usable as an equal area
++% quadrature grid.
++ga = pi*(3-sqrt(5));
++k  = (0:N-1)';
++z  = 1 - 2*(k+0.5)/N;
++r  = sqrt(max(0,1-z.^2));
++th = ga*k;
++dirs = [r.*cos(th), r.*sin(th), z];
++end
++
++% =====================================================================
++function f = watson_amp(dirs_q,n,kappa)
++% Watson distribution about axis n, unnormalized. kappa <= 0 gives isotropic.
++if kappa <= 0
++    f = ones(size(dirs_q,1),1);
++else
++    f = exp(kappa*((dirs_q*n(:)/norm(n)).^2));
++end
++end
++
++% =====================================================================
++function plm = watson_plm(dirs_q,n,kappa,Lmax,CS_phase)
++plm = fodf_to_plm(watson_amp(dirs_q,n,kappa),dirs_q,Lmax,CS_phase);
++end
++
++% =====================================================================
++function plm = fodf_to_plm(fodf,dirs_q,Lmax,CS_phase)
++% Project a sampled fODF onto normalized plm, in SMI's p_00 = 1 convention:
++%   f_lm = plm .* sqrt((2l+1)/(4*pi)),  f_00 = 1/sqrt(4*pi)
++% The returned vector covers l = 2..Lmax, matching out.plm.
++Y  = SMI.get_even_SH(dirs_q,Lmax,CS_phase);
++wq = 4*pi/size(dirs_q,1);                       % equal area quadrature weight
++fodf = fodf(:)/(sum(fodf(:))*wq);               % so that \int fODF dOmega = 1
++flm  = (Y'*fodf)*wq;
++L_all   = repelem(0:2:Lmax, 2*(0:2:Lmax)+1)';
++plm_all = flm./sqrt((2*L_all+1)/(4*pi));
++plm     = plm_all(2:end)/plm_all(1);
++end
++
++% =====================================================================
++function S = forward_signal(plm,kernel_vec,b,beta,TE,dirs,Lmax,CS_phase,D_FW)
++% Forward model, built from exactly the construction that
++% SMI.get_plm_from_S_and_kernel inverts:
++%   S(u_i)/S0 = sum_{lm} K_l(b_i) * p_lm * Y_lm(u_i) * sqrt((2l+1)*4pi)
++% kernel_vec is [f Da Depar Deperp fw T2a T2e].
++L_all = repelem(0:2:Lmax, 2*(0:2:Lmax)+1);
++N_l   = sqrt((2*L_all+1)*(4*pi));
++Y     = SMI.get_even_SH(dirs,Lmax,CS_phase);
++Kell  = zeros(numel(b),Lmax/2+1);
++for il = 0:2:Lmax
++    Kell(:,il/2+1) = SMI.RotInv_Kell_wFW_b_beta_TE_numerical(il,b,beta,TE,kernel_vec(:)',D_FW);
++end
++Kmat = Kell(:, repelem(1:(Lmax/2+1), 2*(0:2:Lmax)+1));
++S    = (Kmat.*(Y.*N_l))*[1; plm(:)];
++end
++
++% =====================================================================
++function [pk,pkdir] = fodf_peak(plm,dirs_e,Lmax,CS_phase)
++% Peak amplitude of the fODF. plm holds l = 2..Lmax; the l=0 term contributes
++% the fixed 1/(4*pi) isotropic floor.
++Y     = SMI.get_even_SH(dirs_e,Lmax,CS_phase);
++L_all = repelem(0:2:Lmax, 2*(0:2:Lmax)+1)';
++[pk,i] = max(Y*([1; plm(:)].*sqrt((2*L_all+1)/(4*pi))));
++pkdir  = dirs_e(i,:);
++end
+-- 
+2.43.0
+
+
+From 2ffbcd6fc86d6050555fabe1e2477f118b30ff18 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 28 Jul 2026 17:27:42 +0000
+Subject: [PATCH 2/3] Make the fODF modulation a toggleable flag on SMI.fit
+
+Adds options.fODF_modulation.flag_modulate, off by default, mirroring how
+options.fODF_regularization is already plumbed through. This lets the same
+script be run with and without the modulation.
+
+The modulation is applied after the deconvolution has finished, so it stays
+downstream of the non-negativity constraint, which operates on the
+normalized fODF. out.plm, out.pl and out.kernel are bit-identical whether
+the flag is on or off (verified, max difference exactly 0); the modulated
+fODF is returned separately as out.fODF_modulated, and the weight map and
+degenerate voxel count as out.fODF_modulation. Flipping the flag therefore
+cannot perturb anything upstream, and the two runs differ only by the added
+output. Settings are written to the log file, including an explicit
+"none" line when the flag is off, so a log identifies which way a run was
+done.
+
+SMI.fODF_ModulationDefaults validates the options, and the fit rejects
+flag_modulate = 1 with flag_fit_fODF = 0 rather than silently doing
+nothing. A numeric source is logged as "user supplied map" instead of
+printing the array. Voxels outside the mask come back as 0 rather than the
+NaN of out.plm, since a NaN breaks downstream tractography; this is
+documented at both the method and the option.
+
+Still additions only to existing code paths, so a fit that does not mention
+fODF_modulation is unchanged.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01QW525oRotCnn6M4gCmS8cP
+---
+ REPORT_fODF_modulation.md |  19 ++++++
+ SMI.m                     | 128 ++++++++++++++++++++++++++++++++++++++
+ example_fODF_modulation.m |  14 +++++
+ 3 files changed, 161 insertions(+)
+
+diff --git a/REPORT_fODF_modulation.md b/REPORT_fODF_modulation.md
+index 9e801e9..1d3f7a9 100644
+--- a/REPORT_fODF_modulation.md
++++ b/REPORT_fODF_modulation.md
+@@ -202,11 +202,30 @@ product of the two independent `p2` estimates, `out.kernel(p2) .* out.pl(:,:,:,1
+ A voxel is kept only if both estimates agree it is coherent, which cancels the
+ kernel estimate's CSF floor against the deconvolved estimate's noise tail.
+ 
++Two equivalent ways to apply it. As a flag on the fit, so the same script can be
++run with and without:
++
++```matlab
++options.fODF_modulation.flag_modulate = 1;         % default 0, off
++out = SMI.fit(dwi, options);
++out.fODF_modulated                                  % the weighted SH coefficients
++out.fODF_modulation.weight                          % the per voxel weight map
++```
++
++or post hoc, on an already fitted `out`:
++
+ ```matlab
+ [sh, w, info] = SMI.modulate_fODF(out);            % defaults
+ [sh, w, info] = SMI.modulate_fODF(out, struct('source','kernel_p2','exponent',2));
+ ```
+ 
++The two paths produce bit-identical output. **`out.plm`, `out.pl` and
++`out.kernel` are identical whether the flag is on or off** — the modulated fODF
++is returned separately in `out.fODF_modulated`, so switching the flag cannot
++perturb anything upstream, and a modulated and an unmodulated run can be
++compared directly. Settings and the degenerate voxel count are written to the
++log file, as they are for the regularization.
++
+ - `kernel_p2` with `exponent = 2` is the near-equal alternative, and the only
+   option available when `flag_fit_fODF = 0`.
+ - **Do not use `p4`**, in either flavour.
+diff --git a/SMI.m b/SMI.m
+index e0a51a5..4afea07 100644
+--- a/SMI.m
++++ b/SMI.m
+@@ -152,6 +152,35 @@ classdef SMI
+     % options.fODF_regularization.TikhonovMatrix 'identity' (default) or
+     %                     'laplacebeltrami' (Gamma=diag(l(l+1))/max(l(l+1)))
+     %
++    % fODF anisotropy modulation (OFF by default, see REPORT_fODF_modulation.md)
++    %
++    % The fODF is stored with p_00 = 1, so it integrates to 1 in every voxel
++    % and its isotropic floor is a fixed 1/(4*pi) = 0.0796, above MRtrix's
++    % default iFOD2 -cutoff of 0.05. An unmodulated fODF therefore passes the
++    % tractography termination test everywhere in the brain, CSF included.
++    % Weighting by orientational coherence restores that amplitude
++    % information, without keying on tissue type, which would delete edema.
++    %
++    % options.fODF_modulation.flag_modulate = 1 enables it (default 0, off).
++    %                     out.plm, out.pl and out.kernel are IDENTICAL whether
++    %                     it is on or off; the modulated fODF is returned
++    %                     separately as out.fODF_modulated, so the same fit can
++    %                     be compared with and without.
++    % options.fODF_modulation.source which anisotropy map to weight by:
++    %                     'p2product' (default, out.kernel p2 .* out.pl(l=2)),
++    %                     'pl2', 'kernel_p2', 'pl4', 'kernel_p4', or a
++    %                     [X Y Z] map supplied directly. p4 is NOT recommended
++    %                     in either flavour, see SMI.fODF_ModulationWeight.
++    % options.fODF_modulation.mode 'density' (default, scales all coefficients
++    %                     including l=0, which is what tractography needs) or
++    %                     'shape' (scales only l>0, leaving the mass at 1)
++    % options.fODF_modulation.exponent w = p.^exponent (default 1)
++    % options.fODF_modulation.clip [lo hi] bounds on p (default [0 1])
++    % options.fODF_modulation.degenerate 'clip' (default) or 'reject', what to
++    %                     do where p exceeds clip(2), i.e. where the
++    %                     deconvolution has blown up
++    % options.fODF_modulation.floor lower bound on w (default 0)
++    %
+     % Free water compartment
+     % options.D_FW this diffusivity is by default fixed at 3
+     % micrometer^2/ms which is the water diffusivity at body temperature.
+@@ -262,6 +291,18 @@ classdef SMI
+             else
+                 fODF_regularization = options.fODF_regularization;
+             end
++            if ~isfield(options,'fODF_modulation')
++                fODF_modulation = [];
++            else
++                fODF_modulation = options.fODF_modulation;
++                % Modulation weights the fODF, so there has to be an fODF.
++                % Without this the request would be a silent no-op.
++                if isstruct(fODF_modulation) && isfield(fODF_modulation,'flag_modulate') && ...
++                        fODF_modulation.flag_modulate && ~flag_fit_fODF
++                    error('SMI:fit',['options.fODF_modulation.flag_modulate = 1 requires ' ...
++                        'options.flag_fit_fODF = 1: there is no fODF to modulate otherwise.']);
++                end
++            end
+             if ~isfield(options,'flag_freeze_seeds') 
+                 flag_freeze_seeds = 1;
+             else
+@@ -513,6 +554,25 @@ classdef SMI
+                 out.fODF_regularization = fODF_regularization;
+                 out.CS_phase=CS_phase;
+                 out.Lmax=Lmax;
++
++                % Anisotropy modulation. Opt in, and deliberately applied HERE,
++                % after the deconvolution has finished: the non-negativity
++                % constraint operates on the normalized fODF, so weighting has
++                % to happen downstream of it, not inside it.
++                %
++                % out.plm is left untouched in the normalized p_00 = 1
++                % convention. The modulated fODF is returned separately as
++                % out.fODF_modulated, so a fit with the flag on and one with it
++                % off give identical out.plm, out.pl and out.kernel.
++                fODF_modulation = SMI.fODF_ModulationDefaults(fODF_modulation);
++                if fODF_modulation.flag_modulate
++                    [sh_mod,w_mod,info_mod] = SMI.modulate_fODF(out,fODF_modulation);
++                    out.fODF_modulated = sh_mod;
++                    fODF_modulation.weight             = w_mod;
++                    fODF_modulation.Ndegenerate        = info_mod.Ndegenerate;
++                    fODF_modulation.fraction_degenerate= info_mod.fraction_degenerate;
++                end
++                out.fODF_modulation = fODF_modulation;
+             end
+             if flag_rectify_fODF
+                 plm=SMI.vectorize(plm,mask);
+@@ -606,6 +666,27 @@ classdef SMI
+                     file_log = [file_log '- fODF non-negativity constraint: none \n'];
+                 end
+             end
++            if flag_fit_fODF && isstruct(fODF_modulation)
++                if fODF_modulation.flag_modulate
++                    if isnumeric(fODF_modulation.source)
++                        source_str = 'user supplied map';   % never print the array itself
++                    else
++                        source_str = fODF_modulation.source;
++                    end
++                    file_log = [file_log sprintf(['- fODF anisotropy modulation: source = %s, mode = %s, ' ...
++                        'exponent = %.3g, clip = [%.3g %.3g], degenerate = %s, floor = %.3g \n'], ...
++                        source_str, fODF_modulation.mode, fODF_modulation.exponent, ...
++                        fODF_modulation.clip(1), fODF_modulation.clip(2), ...
++                        fODF_modulation.degenerate, fODF_modulation.floor)];
++                    if isfield(fODF_modulation,'Ndegenerate')
++                        file_log = [file_log sprintf('- fODF anisotropy modulation: %d degenerate voxels (%.3f%% of the mask) \n', ...
++                            fODF_modulation.Ndegenerate, 100*fODF_modulation.fraction_degenerate)];
++                    end
++                    file_log = [file_log '- fODF anisotropy modulation: out.plm is unchanged, the modulated fODF is out.fODF_modulated \n'];
++                else
++                    file_log = [file_log '- fODF anisotropy modulation: none \n'];
++                end
++            end
+ 
+             fid = fopen(fullfile(path_log,filename_log),'wt');
+             fprintf(fid, file_log);
+@@ -926,6 +1007,45 @@ classdef SMI
+             dirs = [r.*cos(phi), r.*sin(phi), z];
+         end
+         % =================================================================
++        function mod = fODF_ModulationDefaults(mod)
++            % mod = SMI.fODF_ModulationDefaults(mod)
++            %
++            % Fills in the default values of the options controlling the
++            % anisotropy modulation of the fODF. Modulation is OPT IN:
++            % flag_modulate defaults to 0, so a fit that does not set
++            % options.fODF_modulation behaves exactly as before.
++            %
++            % mod.flag_modulate  1 enables the modulation (default 0)
++            % mod.source         which anisotropy map to weight by (default
++            %                    'p2product'); see SMI.fODF_ModulationWeight
++            % mod.mode           'density' (default) or 'shape'; see
++            %                    SMI.modulate_fODF
++            % mod.exponent       w = p.^exponent (default 1)
++            % mod.clip           [lo hi] bounds on p (default [0 1])
++            % mod.degenerate     'clip' (default) or 'reject'
++            % mod.floor          lower bound on w (default 0)
++            if isempty(mod), mod = struct(); end
++            if ~isstruct(mod)
++                error('SMI:fODF_ModulationDefaults','options.fODF_modulation must be a structure');
++            end
++            if ~isfield(mod,'flag_modulate'), mod.flag_modulate = 0; end
++            if ~isfield(mod,'source'),        mod.source     = 'p2product'; end
++            if ~isfield(mod,'mode'),          mod.mode       = 'density'; end
++            if ~isfield(mod,'exponent'),      mod.exponent   = 1; end
++            if ~isfield(mod,'clip'),          mod.clip       = [0 1]; end
++            if ~isfield(mod,'degenerate'),    mod.degenerate = 'clip'; end
++            if ~isfield(mod,'floor'),         mod.floor      = 0; end
++            if numel(mod.clip)~=2 || mod.clip(1)>=mod.clip(2)
++                error('SMI:fODF_ModulationDefaults','fODF_modulation.clip must be [lo hi] with lo < hi');
++            end
++            if ~ismember(lower(mod.mode),{'density','shape'})
++                error('SMI:fODF_ModulationDefaults','fODF_modulation.mode must be ''density'' or ''shape''');
++            end
++            if ~ismember(lower(mod.degenerate),{'clip','reject'})
++                error('SMI:fODF_ModulationDefaults','fODF_modulation.degenerate must be ''clip'' or ''reject''');
++            end
++        end
++        % =================================================================
+         function p = grab_pl(out,which_l)
+             % p = SMI.grab_pl(out,which_l)
+             %
+@@ -1163,6 +1283,10 @@ classdef SMI
+             % the rest of this toolbox assumes. Document which convention a
+             % saved NIfTI is in.
+             %
++            % Voxels outside the mask are returned as 0, not NaN as out.plm
++            % has them, so that the result can be written straight out for
++            % tractography.
++            %
+             % Note that SMI's SH basis is not necessarily MRtrix's. Verify the
+             % ordering and the Condon-Shortley convention before feeding the
+             % result to MRtrix.
+@@ -1201,6 +1325,10 @@ classdef SMI
+             else
+                 error('SMI:modulate_fODF','unknown options.mode ''%s''',options.mode);
+             end
++            % Voxels outside the mask are NaN in out.plm (SMI.vectorize fills
++            % with NaN). They become 0 here rather than NaN, because a NaN in
++            % an SH volume breaks downstream tractography. This is a
++            % deliberate difference from the convention of out.plm.
+             sh(~isfinite(sh)) = 0;
+ 
+             info.mode = options.mode;
+diff --git a/example_fODF_modulation.m b/example_fODF_modulation.m
+index bcd39de..b61d056 100644
+--- a/example_fODF_modulation.m
++++ b/example_fODF_modulation.m
+@@ -165,11 +165,25 @@ end
+ % Applying the modulation. The result is the SH coefficient array INCLUDING
+ % the l=0 term, which out.plm does not store: without it the density weighting
+ % would be lost.
++%
++% Either post hoc on an already fitted out ...
+ out = store(end,2).out;
+ [sh,w,info] = SMI.modulate_fODF(out, struct('source','p2product','mode','density'));
+ fprintf(['\nmodulated fODF: %d SH coefficients, weight in [%.3f %.3f], ' ...
+          '%d degenerate voxels, mode ''%s''\n'], ...
+         size(sh,4), min(w(:)), max(w(:)), info.Ndegenerate, info.mode);
++
++% ... or as a flag on the fit itself, which is the way to run one instance
++% with the modulation and one without. out.plm, out.pl and out.kernel are
++% identical either way; only out.fODF_modulated is added.
++o = opts;
++o.fODF_regularization = arms{2}{2};
++o.filename_log        = 'log_modulation_flag_on.txt';
++o.fODF_modulation     = struct('flag_modulate',1);   % default 0, off
++out_on = SMI.fit(reshape(S_flat',[vol Ndwi]), o);
++fprintf('flag on: out.fODF_modulated is %s, out.plm unchanged: %d\n', ...
++        mat2str(size(out_on.fODF_modulated)), ...
++        isequal(out_on.plm, out.plm));
+ fprintf('NOTE: in density mode p_00 is no longer 1. Record which convention\n');
+ fprintf('      a saved NIfTI is in, and check SMI''s SH basis against MRtrix''s\n');
+ fprintf('      ordering and Condon-Shortley convention before running tckgen.\n');
+-- 
+2.43.0
+
+
+From 919cf7fc645f1f04a9153ae64d098d890abf8292 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 28 Jul 2026 17:32:49 +0000
+Subject: [PATCH 3/3] Document the anisotropy modulation in the README
+
+Adds a "Anisotropy modulation of the fODF" section alongside the existing
+regularization one, with the simulation results: the per-class table of
+what survives MRtrix's default cutoff, the adaptive cutoff test including
+the f and 1-fw tissue-fraction references, and why p4 is rejected in both
+flavours.
+
+Leads with the reason the operation is needed at all, which is easy to
+miss: because plm is normalized to p_00 = 1, the fODF has a fixed
+isotropic floor of 1/(4*pi) = 0.0796, above MRtrix's default iFOD2
+-cutoff of 0.05, so an unmodulated SMI fODF passes the termination test
+in every voxel of the brain including CSF.
+
+Also adds a map of exactly which lines of SMI.m changed to the report, and
+records that every hunk is an addition.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01QW525oRotCnn6M4gCmS8cP
+---
+ README.md                 | 96 +++++++++++++++++++++++++++++++++++++++
+ REPORT_fODF_modulation.md | 24 +++++++++-
+ 2 files changed, 119 insertions(+), 1 deletion(-)
+
+diff --git a/README.md b/README.md
+index 43773af..02e2002 100644
+--- a/README.md
++++ b/README.md
+@@ -153,6 +153,7 @@ The code provides some additional flexibility:
+ - User-defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
+ - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
+ - Regularization (non-negativity and Tikhonov) of the fODF deconvolution, see below.
++- Anisotropy modulation of the fODF, so that its amplitude carries orientational coherence for tractography, see below.
+ 
+ 
+ ### Regularized fODF deconvolution
+@@ -233,6 +234,101 @@ The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground tru
+ Panels are lettered and styled for direct use in a manuscript.
+ 
+ 
++### Anisotropy modulation of the fODF
++`out.plm` is stored in the normalized convention `p_00 = 1`, so the fODF **integrates to 1 in every voxel**: an isotropic CSF voxel and a tightly coherent white matter voxel produce fODFs of the same total mass. Its isotropic floor is therefore a fixed
++
++```
++1/(4*pi) = 0.0796  >  0.05 = MRtrix's default iFOD2 -cutoff
++```
++
++so an unmodulated SMI fODF **passes the MRtrix termination test in every voxel of the brain, CSF included**. In the simulation below, 100% of grey matter and 100% of CSF voxels survive the default cutoff. MRtrix FODs are not normalized: their amplitude carries apparent fiber density, and both `iFOD2` and `SD_STREAM` use it for the termination threshold. Feeding a normalized fODF to a tractography algorithm removes its ability to tell tissue from non-tissue by amplitude.
++
++Modulation multiplies the fODF by a per-voxel weight `w` that measures **orientational coherence**. This is deliberately not a tissue-type criterion: fibers displaced by edema stay coherent and keep a high weight even when their axonal fraction has collapsed, so peritumoral tissue is preserved where an `f` or `1-fw` threshold would delete it — which matters when the whole point is tracking *through* edema.
++
++Two distinct operations, which should not be conflated:
++
++| mode | operation | effect |
++|---|---|---|
++| `'density'` (default) | scales **all** coefficients, including `l=0` | `fODF -> w*fODF`. Shape and peak orientation unchanged, total mass becomes `w`. The AFD-like operation, and the one tractography needs. |
++| `'shape'` | scales only `l>0` | mass stays 1, the fODF sharpens or flattens. This is what the Tikhonov term already does implicitly. |
++
++It is **off by default** and is a toggle, so the same script can be run with and without it:
++
++```
++options.flag_fit_fODF = 1;
++options.fODF_modulation.flag_modulate = 1;           % default 0 (off)
++options.fODF_modulation.source        = 'p2product'; % default
++options.fODF_modulation.mode          = 'density';   % default
++options.fODF_modulation.exponent      = 1;           % default
++options.fODF_modulation.clip          = [0 1];       % default
++options.fODF_modulation.degenerate    = 'clip';      % or 'reject'
++options.fODF_modulation.floor         = 0;           % default
++
++[out] = SMI.fit(dwi,options);
++out.fODF_modulated           % weighted SH coefficients, INCLUDING the l=0 term
++out.fODF_modulation.weight   % the per-voxel weight map
++```
++
++`out.plm`, `out.pl` and `out.kernel` are **identical whether the flag is on or off** (verified, difference exactly 0). The modulation is applied after the deconvolution has finished — it has to be, since the non-negativity constraint operates on the normalized fODF — and the result is returned in a separate field, so switching the flag cannot perturb anything upstream and the two runs can be compared directly. The same operation is available post hoc as `SMI.modulate_fODF(out,options)`, which produces bit-identical output.
++
++#### Which anisotropy? Not p4, and not either p2 on its own
++There are two independent estimates of `p2` in the output and they fail in **opposite** ways:
++
++- `out.kernel(:,:,:,ip2)` — estimated jointly with the kernel by the polynomial regression on rotational invariants. Stable, and available even when `flag_fit_fODF = 0`, but it **does not fall to 0 in CSF**: its regression is trained on a prior of tissue kernels, so where the `l=2` signal carries no information it returns roughly the prior mean (median 0.31 in simulated CSF against a true value of 0).
++- `out.pl(:,:,:,1)` — the `l=2` rotational invariant of the deconvolved fODF. It has no such floor (median 0.076) because it is a direct projection of the measured signal, but it inherits the deconvolution's noise and so has a heavy tail.
++
++The default `'p2product'` is their product: a voxel is kept only if **both** estimates agree it is coherent, which cancels one's bias against the other's variance. `'pl2'`, `'kernel_p2'`, `'pl4'`, `'kernel_p4'`, or a `[X Y Z]` map supplied directly are also accepted.
++
++**`p4` is not recommended in either flavour.** The kernel `p4` carries the same upward bias, and is bounded above by the training prior, which draws `p4 = rand*p2*0.9`. The deconvolved `pl4` is destroyed by the Tikhonov term, which damps `l=4` far harder than `l=2` (median 0.26 in single-fiber white matter against a true 0.71) — weighting by it measures the regularizer, not the tissue.
++
++#### Measured results
++`example_fODF_modulation.m` (no data needed, helpers in `fODF_modulation_helpers.m`) simulates seven voxel classes with 200 noise realizations each, 6 shells (b = 0, 1, 2, 3, 4.5, 6 ms/um^2, `Lmax = [0 2 2 2 4 4]`), fitted through the real `SMI.fit` at SNR 30 and 15, with and without the regularized deconvolution. The forward model is the same construction the deconvolution inverts, so it round-trips to `max|error| = 1.2e-15`.
++
++The third class, **white matter inside edema**, is the control that must survive: `f` = 0.30 and `fw` = 0.50, but the fibers are still coherent. A weight that suppresses it along with grey matter and CSF is a tissue-type criterion in disguise.
++
++Percentage of voxels left above the MRtrix default cutoff of 0.05, at **SNR 15 with the regularized deconvolution**:
++
++| class | unweighted | `kernel_p2` | `kernel_p2^2` | `pl2` | `pl4` | **`p2product`** |
++|---|---|---|---|---|---|---|
++| WM single fiber | 100% | 100% | 100% | 100% | 100% | **100%** |
++| WM crossing 60 deg | 100% | 100% | 94% | 100% | 10% | **92%** |
++| **WM in edema** | 100% | 100% | 100% | 100% | 100% | **100%** |
++| GM | 100% | 0% | 0% | 0% | 10% | **0%** |
++| CSF | 100% | 54% | 0% | 20% | 84% | **0%** |
++| WM/CSF interface | 100% | 100% | 100% | 100% | 100% | **100%** |
++| WM/GM interface | 100% | 100% | 100% | 100% | 100% | **100%** |
++
++Weighting by `pl4` leaves 84% of CSF above cutoff, **worse than not weighting at all**. Interface voxels are fully retained by every `p2` weight, so modulation does not erode tract boundaries.
++
++Scoring against an adaptive threshold instead — the cutoff `T` that retains 95% of all white matter *including the edema class*, then the fraction of GM+CSF still above `T` — separates the anisotropy weights from the tissue-fraction ones:
++
++| weight | FP GM+CSF | edema retained | separation |
++|---|---|---|---|
++| unweighted | 10.5% | 100% | 1.39 |
++| `kernel_p2` | 0.0% | 100% | 2.45 |
++| `pl2` | 0.8% | 100% | 2.25 |
++| `pl4` | 60.0% | 100% | 1.52 |
++| **`p2product`** | **0.0%** | **100%** | **4.15** |
++| `f` *(tissue-type reference)* | 0.0% | **94%** | 2.58 |
++| `1-fw` *(tissue-type reference)* | 31.5% | **85%** | 0.86 |
++
++The last two rows are the case against tissue-fraction weights: `f` discards 6% of the edema class and `1-fw` discards 15%, while every `p2`-based weight keeps 100% of it. `1-fw` also fails at its own job, leaving 63% of grey matter above threshold.
++
++#### Modulation does not replace regularization
++At SNR 15 **without** the regularized deconvolution the CSF class produced fODF peaks up to **2.2e14**, reproducing the amplitudes seen in real data. The mechanism is the deconvolution's noise-amplification gain `g_2 = 1/||K_2(b)||`, measured at 3.6 in CSF against 0.6 in white matter: `p_2m` is recovered by dividing the `l=2` signal harmonic by `K_2`, and in a nearly isotropic voxel `K_2 -> 0`. The regularized fit caps the same voxels at 0.449.
++
++The weight is clipped at 1, so it cannot rescue a blown-up voxel — `w*1e13` is still `1e13`. **Run the regularized deconvolution as well.** If fODF peaks are also being truncated, truncate **before** modulating: truncation thresholds are absolute amplitudes and modulation rescales them.
++
++#### Conventions to be aware of
++- In `'density'` mode `p_00` is no longer 1. That is the point, but the result is **not** in the convention the rest of the toolbox assumes — record which convention a saved NIfTI is in.
++- `out.fODF_modulated` includes the `l=0` term, which `out.plm` does not store. Without it the density weighting would be lost.
++- Voxels outside the mask are returned as `0`, not the `NaN` that `out.plm` carries, since a NaN in an SH volume breaks downstream tractography.
++- `out.fODF_modulated` is in SMI's own SH basis (`SMI.get_even_SH` with `out.CS_phase`). **This has not been checked against MRtrix's basis** — verify the coefficient ordering and the Condon-Shortley convention before running `tckgen`.
++- These are simulations. `p2` in real edema should be checked against a known ROI before this is relied on: the simulated edema class assumes fibers stay coherent, which is the assumption the whole approach rests on.
++
++Full methodology, all result tables and limitations are in `REPORT_fODF_modulation.md`.
++
++
+ ## Useful tips
+ The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
+ - For conventional 2-shell datasets (b=1000,2000 s/mm^2) set 'options.compartments' to {'IAS', 'EAS'} (no FW compartment).
+diff --git a/REPORT_fODF_modulation.md b/REPORT_fODF_modulation.md
+index 1d3f7a9..2ea8036 100644
+--- a/REPORT_fODF_modulation.md
++++ b/REPORT_fODF_modulation.md
+@@ -271,9 +271,31 @@ basis before feeding it to `tckgen`** — this has not been checked here.
+ 
+ | file | contents |
+ |---|---|
+-| `SMI.m` | `grab_pl`, `grab_kernel_pl`, `fODF_ModulationWeight`, `modulate_fODF` (additions only; existing code paths untouched, so fits without modulation are bit-identical) |
++| `SMI.m` | the five new static methods and the `SMI.fit` integration, see the map below |
+ | `example_fODF_modulation.m` | the simulation and scoring above |
++| `fODF_modulation_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
+ | `REPORT_fODF_modulation.md` | this file |
++| `0004fODFmodulation.patch` | the exact diff of the two commits, applies with `git am` |
++
++### Exactly what changed in `SMI.m`
++
++Every hunk is an **addition**; no existing line was modified or deleted
++(`git diff -U0 SMI.m | grep '^-'` is empty across both commits). A fit that
++does not set `options.fODF_modulation` is therefore unchanged.
++
++| lines | what |
++|---|---|
++| 155-182 | header documentation of the `options.fODF_modulation` block |
++| 294-306 | option parsing in `SMI.fit`, including the guard that rejects `flag_modulate = 1` with `flag_fit_fODF = 0` |
++| 558-576 | the call site in `SMI.fit`, after the deconvolution, writing `out.fODF_modulated` and `out.fODF_modulation` |
++| 669-689 | the log file entries, including the explicit `none` line when the flag is off |
++| 1010-1047 | `SMI.fODF_ModulationDefaults` — option defaults and validation |
++| 1049-1062 | `SMI.grab_pl` — accessor for `out.pl` |
++| 1064-1098 | `SMI.grab_kernel_pl` — accessor for the kernel `p2`/`p4`, resolving the index ambiguity from `out.shells` |
++| 1100-1244 | `SMI.fODF_ModulationWeight` — builds the weight map |
++| 1246-1336 | `SMI.modulate_fODF` — applies it and returns SH coefficients |
++
++Line numbers are as of commit `2ffbcd6`.
+ 
+ `out.kernel` layout is `[f Da Depar Deperp fw (T2a T2e) p2 (p4) (p6)]`, so `p2`
+ sits at index 6 without T2 fitting and 8 with it. The map count alone is
+-- 
+2.43.0
+
