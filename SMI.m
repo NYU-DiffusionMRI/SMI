@@ -458,8 +458,9 @@ classdef SMI
         
                 % Run wide priors to detect high-CSF voxels 
                 KERNEL_wide = SMI.StandardModel_MLfit_RotInvs(RotInvs,mask,sigma,b_micro_units,beta,TE,prior_wide,Nlevels,sigma_norm_limits,[1 1 1 0],MergeDistance,RotInv_Lmax,Lmax,D_FW,Degree_Kernel_PR);
-                mask_flag_fw = KERNEL_wide(:,:,:,5) > WM_fw_threshold;
-                
+                % mask_flag_fw = KERNEL_wide(:,:,:,5) > WM_fw_threshold;
+                mask_flag_fw = ( KERNEL_wide(:,:,:,5) > WM_fw_threshold ) | ( KERNEL(:,:,:,1) > 0.999 ); % This removes further outliers where estimation failed
+
                 % Merge both fits
                 mask_flag_fw4D = repmat(mask_flag_fw, [1 1 1 size(KERNEL,4)]);
                 KERNEL(mask_flag_fw4D) = KERNEL_wide(mask_flag_fw4D);
